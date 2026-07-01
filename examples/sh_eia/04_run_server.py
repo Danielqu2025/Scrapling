@@ -1,6 +1,8 @@
 """
 Example 4: Team web app - search, sync, and download Shanghai EIA disclosures.
 
+Documentation: README.md in this directory; portable packaging: ../README.md
+
 Run from examples/sh_eia:
 
     pip install -r requirements-app.txt

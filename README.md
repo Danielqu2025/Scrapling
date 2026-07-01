@@ -530,6 +530,13 @@ docker pull ghcr.io/d4vinci/scrapling:latest
 ```
 This image is automatically built and pushed using GitHub Actions and the repository's main branch.
 
+## Examples
+
+The [`examples/`](examples/) directory contains full applications built on Scrapling. See [examples/README.md](examples/README.md) for:
+
+- **[sh_eia](examples/sh_eia/)** — Shanghai EIA disclosure search (dual-source web app with portable exe packaging)
+- **`examples/package_app.py`** — CLI to scaffold (`init`) and build (`build`) portable Windows packages for any example app
+
 ## Contributing
 
 We welcome contributions! Please read our [contributing guidelines](https://github.com/D4Vinci/Scrapling/blob/main/CONTRIBUTING.md) before getting started.

@@ -1,0 +1,42 @@
+{
+  "id": "sh_eia",
+  "display_name": "上海环评资料检索",
+  "exe_name": "ShEIA",
+  "entry_script": "portable_launcher.py",
+  "package_suffix": "_portable",
+  "include_paths": ["."],
+  "include_repo_root": true,
+  "add_data": [
+    {"from": "app/static", "to": "app/static"}
+  ],
+  "hidden_imports": [
+    "uvicorn.logging",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.lifespan.on",
+    "uvicorn.lifespan.off",
+    "email.mime.multipart",
+    "email.mime.text",
+    "sqlite3",
+    "_sqlite3",
+    "apscheduler",
+    "multipart"
+  ],
+  "collect_all": [
+    "scrapling",
+    "playwright",
+    "browserforge",
+    "apify_fingerprint_datapoints",
+    "lxml",
+    "orjson"
+  ],
+  "bundle_sqlite": true,
+  "bundle_playwright_browsers": {
+    "enabled_by_default": true,
+    "env_var": "SH_EIA_BUNDLE_BROWSERS"
+  },
+  "seed_data": [
+    {"from": "data/eia.db", "to": "data/eia.db"}
+  ],
+  "readme_template": "{title} - 便携版\n\n【使用】\n1. 双击 {exe_name}.exe\n2. 浏览器会自动打开；若未打开，请访问 http://127.0.0.1:8080\n3. 关闭黑色命令行窗口即可退出\n\n【数据】\n- 数据库保存在 data 文件夹（eia.db）\n- 页面中可「导出数据库」分享给同事\n- 同事用「导入数据库」即可使用，无需重新抓取\n\n【同步官网】\n- {browser_note}\n- 需要能访问上海市生态环境局官网\n\n【分享给别人】\n方式一：发送 dist 目录下的 {exe_name}_portable.zip\n方式二：发送程序目录 + 导出的数据库备份 zip\n"
+}

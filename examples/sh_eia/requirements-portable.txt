@@ -1,2 +1,2 @@
-# Build dependencies for portable single-file package
-pyinstaller>=6.10.0
+# 与 examples/requirements-portable.txt 相同；保留此文件便于在 sh_eia 目录内直接 pip install
+-r ../requirements-portable.txt

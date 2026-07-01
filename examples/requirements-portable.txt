@@ -1,0 +1,3 @@
+# PyInstaller — used by examples/package_app.py
+# Install: pip install -r examples/requirements-portable.txt
+pyinstaller>=6.10.0
