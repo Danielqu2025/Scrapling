@@ -18,26 +18,12 @@ BASE_URL = f"{BASE_HOST}/shhj/fa/cms/shhj/"
 PDF_GATEWAY = f"{BASE_URL}hpgs_pdf_login.jsp"
 EXCHANGE_FILE_BASE = f"{BASE_HOST}/file/exchange_file/"
 
-DISCLOSURE_TYPES = {
-    "acceptance": {
-        "label": "受理信息",
-        "list_marker": "hpsl_list_login.jsp",
-        "entry_url": f"{BASE_URL}hpgs_gz_login.jsp?applyItem=1&gongshiType=1&approvType=1",
-    },
-    "proposed_approval": {
-        "label": "拟审批公示",
-        "list_marker": "hpnsp_list_login.jsp",
-        "entry_url": f"{BASE_URL}hpgs_gz_login.jsp?applyItem=1&gongshiType=2&approvType=1",
-    },
-    "approval_decision": {
-        "label": "审批决定公告",
-        "list_marker": "hpxm_list_login.jsp",
-        "entry_url": f"{BASE_URL}hpgs_gz_login.jsp?applyItem=1&gongshiType=3&approvType=1",
-    },
-}
+from sources.types import DISCLOSURE_TYPES
 
-LIST_URLS = {key: value["entry_url"] for key, value in DISCLOSURE_TYPES.items()}
-LIST_PAGE_MARKERS = tuple(value["list_marker"] for value in DISCLOSURE_TYPES.values())
+LIST_URLS = {key: value["entry_url"] for key, value in DISCLOSURE_TYPES.items() if "entry_url" in value}
+LIST_PAGE_MARKERS = tuple(
+    value["list_marker"] for value in DISCLOSURE_TYPES.values() if "list_marker" in value
+)
 DEFAULT_LIST_URL = LIST_URLS["approval_decision"]
 
 METADATA_PATH = OUTPUT_DIR / "sh_eia_metadata.jsonl"

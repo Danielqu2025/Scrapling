@@ -23,7 +23,7 @@ import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.main import _run_sync_job, app
-from _common import DISCLOSURE_TYPES
+from sources.types import DISCLOSURE_TYPES, SOURCE_E2_QYGK, SOURCE_LINK_STHJ
 
 
 def main() -> None:
@@ -36,7 +36,13 @@ def main() -> None:
     scheduler = BackgroundScheduler()
     if sync_hours > 0:
         scheduler.add_job(
-            lambda: _run_sync_job(list(DISCLOSURE_TYPES), max_pages, "schedule"),
+            lambda: _run_sync_job(
+                [SOURCE_LINK_STHJ, SOURCE_E2_QYGK],
+                list(DISCLOSURE_TYPES),
+                max_pages,
+                max_pages == 1,
+                "schedule",
+            ),
             trigger="interval",
             hours=sync_hours,
             id="sh_eia_periodic_sync",
