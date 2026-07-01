@@ -35,6 +35,7 @@ def link_record_to_event(record: dict[str, Any]) -> dict[str, Any]:
             "approval_title": record.get("approval_title", ""),
             "summary": record.get("summary", ""),
             "pub_period": record.get("pub_period", ""),
+            "approval_number": record.get("approval_number", ""),
         },
         "source_url": record.get("source_url", ""),
         "files": record.get("files", []),

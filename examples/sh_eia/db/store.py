@@ -14,10 +14,22 @@ from typing import Any, Iterator
 
 from _paths import DB_PATH, MANIFEST_PATH
 from db.migrate import migrate_if_needed
-from db.resolver import MasterResolver, get_schema_version, pick_event_date
+from db.resolver import MasterResolver, episode_group_key_from_event, episode_key_from_event, event_matches_episode, get_schema_version, pick_event_date
 from db.schema import FTS_REBUILD_SQL, SCHEMA_V2_SQL, SCHEMA_VERSION
 from db.timeline_view import build_progress_view
-from sources.types import DISCLOSURE_TYPES, FILE_TYPE_LABELS, SORT_BY_OPTIONS, SORT_ORDER_OPTIONS, TYPE_SORT_ORDER
+from sources.types import DISCLOSURE_TYPES, FILE_TYPE_LABELS, SORT_BY_OPTIONS, SORT_ORDER_OPTIONS, SOURCE_E2_QYGK, SOURCES, TYPE_SORT_ORDER
+
+SUMMARY_YEAR_JSON_KEYS = (
+    "approval_date",
+    "planned_start_date",
+    "actual_start_date",
+    "completion_date",
+    "debug_start_date",
+    "acceptance_pub_start",
+    "pre_pub_period",
+    "pub_period",
+    "approval_number",
+)
 
 
 def utc_now() -> str:
@@ -219,7 +231,102 @@ class EIAStore:
         events = link_records_to_events(records)
         return self.filter_new_events(events)
 
-    def get_timeline(self, master_id: int) -> dict[str, Any] | None:
+    def get_source_type_coverage(self, source: str, disclosure_type: str) -> dict[str, int]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS event_count, COALESCE(MAX(page_no), 0) AS max_page
+                FROM disclosure_events
+                WHERE source = ? AND disclosure_type = ?
+                """,
+                (source, disclosure_type),
+            ).fetchone()
+            return {"event_count": int(row["event_count"]), "max_page": int(row["max_page"])}
+
+    def count_e2_incomplete_details(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM disclosure_events
+                WHERE source = ? AND disclosure_type = 'post_construction'
+                  AND (
+                    COALESCE(json_extract(summary_json, '$.approval_number'), '') = ''
+                    AND COALESCE(json_extract(summary_json, '$.approval_date'), '') = ''
+                    AND COALESCE(json_extract(summary_json, '$.actual_start_date'), '') = ''
+                    AND COALESCE(json_extract(summary_json, '$.debug_start_date'), '') = ''
+                    AND COALESCE(json_extract(summary_json, '$.completion_date'), '') = ''
+                  )
+                """,
+                (SOURCE_E2_QYGK,),
+            ).fetchone()
+            return int(row[0])
+
+    def count_e2_without_list_year(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM disclosure_events
+                WHERE source = ? AND disclosure_type = 'post_construction'
+                  AND COALESCE(json_extract(summary_json, '$.list_year'), '') = ''
+                """,
+                (SOURCE_E2_QYGK,),
+            ).fetchone()
+            return int(row[0])
+
+    def count_e2_by_list_year(self, year: str) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM disclosure_events
+                WHERE source = ? AND disclosure_type = 'post_construction'
+                  AND json_extract(summary_json, '$.list_year') = ?
+                """,
+                (SOURCE_E2_QYGK, year),
+            ).fetchone()
+            return int(row[0])
+
+    def get_max_synced_page(self, source: str, disclosure_type: str) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT MAX(page_no) FROM disclosure_events
+                WHERE source = ? AND disclosure_type = ?
+                """,
+                (source, disclosure_type),
+            ).fetchone()
+            return int(row[0] or 0)
+
+    def existing_external_ids(self, source: str, disclosure_type: str) -> set[str]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT external_id FROM disclosure_events
+                WHERE source = ? AND disclosure_type = ?
+                """,
+                (source, disclosure_type),
+            ).fetchall()
+            return {row[0] for row in rows if row[0]}
+
+    def e2_detail_summary_cache(self, source: str, disclosure_type: str) -> dict[str, dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT external_id, summary_json FROM disclosure_events
+                WHERE source = ? AND disclosure_type = ?
+                """,
+                (source, disclosure_type),
+            ).fetchall()
+            cache: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                try:
+                    summary = json.loads(row["summary_json"] or "{}")
+                except json.JSONDecodeError:
+                    summary = {}
+                if isinstance(summary, dict):
+                    cache[row["external_id"]] = summary
+            return cache
+
+    def get_timeline(self, master_id: int, episode_key: str | None = None) -> dict[str, Any] | None:
         with self.connect() as conn:
             master = conn.execute("SELECT * FROM projects_master WHERE id = ?", (master_id,)).fetchone()
             if not master:
@@ -251,13 +358,24 @@ class EIAStore:
                     ).fetchall()
                 ]
                 timeline.append(item)
+            if episode_key:
+                timeline = [item for item in timeline if event_matches_episode(item, episode_key)]
             return {"master": dict(master), "events": timeline}
 
-    def get_progress(self, master_id: int) -> dict[str, Any] | None:
-        timeline = self.get_timeline(master_id)
+    def get_progress(self, master_id: int, episode_key: str | None = None) -> dict[str, Any] | None:
+        timeline = self.get_timeline(master_id, episode_key=episode_key)
         if timeline is None:
             return None
-        return build_progress_view(timeline["master"], timeline["events"])
+        master = dict(timeline["master"])
+        if episode_key and not episode_key.startswith("round_"):
+            master["approval_number"] = episode_key
+        elif episode_key and episode_key.startswith("round_"):
+            for event in timeline["events"]:
+                label = episode_key_from_event(event)
+                if label and not label.startswith("round_"):
+                    master["approval_number"] = label
+                    break
+        return build_progress_view(master, timeline["events"])
 
     def get_file_detail(self, file_id: int) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -286,19 +404,33 @@ class EIAStore:
         limit: int = 50,
         sort_by: str = "event_date",
         sort_order: str = "desc",
+        year: str | None = None,
+        district: str | None = None,
+        lifecycle_stage: str | None = None,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         query = query.strip()
         types = disclosure_types or list(DISCLOSURE_TYPES)
-        placeholders = ",".join("?" for _ in types)
+        type_placeholders = ",".join("?" for _ in types)
+        filter_sql, filter_params = self._search_filter_sql(year, district, lifecycle_stage, source)
 
         with self.connect() as conn:
             if query:
-                master_ids = self._search_master_ids(conn, query, types, limit * 3)
+                master_ids = self._search_master_ids(conn, query, types, limit * 3, filter_sql, filter_params)
                 if not master_ids:
-                    rows = self._search_events_like(conn, query, types, limit, sort_by, sort_order)
+                    rows = self._search_events_like(
+                        conn, query, types, limit, sort_by, sort_order, filter_sql, filter_params
+                    )
                 else:
                     rows = self._fetch_events_for_masters(
-                        conn, master_ids, types, limit, sort_by, sort_order
+                        conn,
+                        master_ids,
+                        types,
+                        limit,
+                        sort_by,
+                        sort_order,
+                        filter_sql,
+                        filter_params,
                     )
             else:
                 order_clause = self._build_order_clause(sort_by, sort_order, table_alias="e.", master_alias="m.")
@@ -308,14 +440,130 @@ class EIAStore:
                            m.location, m.district, m.st_eia_id, e.id AS event_id, m.id AS master_id
                     FROM disclosure_events e
                     JOIN projects_master m ON m.id = e.master_id
-                    WHERE e.disclosure_type IN ({placeholders})
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      {filter_sql}
                     ORDER BY {order_clause}
                     LIMIT ?
                     """,
-                    (*types, limit),
+                    (*types, *filter_params, limit),
                 ).fetchall()
 
             return [self._event_row_to_result(conn, row) for row in rows]
+
+    def search_facets(self, disclosure_types: list[str] | None = None) -> dict[str, Any]:
+        types = disclosure_types or list(DISCLOSURE_TYPES)
+        type_placeholders = ",".join("?" for _ in types)
+        with self.connect() as conn:
+            years = conn.execute(
+                f"""
+                SELECT value, COUNT(*) AS count FROM (
+                    SELECT substr(COALESCE(NULLIF(e.event_date, ''), e.synced_at), 1, 4) AS value
+                    FROM disclosure_events e
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      AND substr(COALESCE(NULLIF(e.event_date, ''), e.synced_at), 1, 4) GLOB '[0-9][0-9][0-9][0-9]'
+                    UNION ALL
+                    SELECT substr(json_extract(e.summary_json, '$.approval_date'), 1, 4)
+                    FROM disclosure_events e
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      AND json_extract(e.summary_json, '$.approval_date') GLOB '[0-9][0-9][0-9][0-9]*'
+                    UNION ALL
+                    SELECT substr(json_extract(e.summary_json, '$.actual_start_date'), 1, 4)
+                    FROM disclosure_events e
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      AND json_extract(e.summary_json, '$.actual_start_date') GLOB '[0-9][0-9][0-9][0-9]*'
+                    UNION ALL
+                    SELECT substr(json_extract(e.summary_json, '$.completion_date'), 1, 4)
+                    FROM disclosure_events e
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      AND json_extract(e.summary_json, '$.completion_date') GLOB '[0-9][0-9][0-9][0-9]*'
+                    UNION ALL
+                    SELECT substr(json_extract(e.summary_json, '$.debug_start_date'), 1, 4)
+                    FROM disclosure_events e
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      AND json_extract(e.summary_json, '$.debug_start_date') GLOB '[0-9][0-9][0-9][0-9]*'
+                    UNION ALL
+                    SELECT substr(json_extract(e.summary_json, '$.acceptance_pub_start'), 1, 4)
+                    FROM disclosure_events e
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      AND json_extract(e.summary_json, '$.acceptance_pub_start') GLOB '[0-9][0-9][0-9][0-9]*'
+                    UNION ALL
+                    SELECT substr(json_extract(e.summary_json, '$.pub_period'), 1, 4)
+                    FROM disclosure_events e
+                    WHERE e.disclosure_type IN ({type_placeholders})
+                      AND json_extract(e.summary_json, '$.pub_period') GLOB '[0-9][0-9][0-9][0-9]*'
+                )
+                WHERE value GLOB '[0-9][0-9][0-9][0-9]'
+                GROUP BY value
+                ORDER BY value DESC
+                """,
+                (*types, *types, *types, *types, *types, *types, *types),
+            ).fetchall()
+            districts = conn.execute(
+                f"""
+                SELECT m.district AS value, COUNT(DISTINCT m.id) AS count
+                FROM disclosure_events e
+                JOIN projects_master m ON m.id = e.master_id
+                WHERE e.disclosure_type IN ({type_placeholders})
+                  AND m.district != ''
+                GROUP BY m.district
+                ORDER BY count DESC, value ASC
+                """,
+                types,
+            ).fetchall()
+            lifecycle_stages = conn.execute(
+                f"""
+                SELECT e.lifecycle_stage AS value, COUNT(*) AS count
+                FROM disclosure_events e
+                WHERE e.disclosure_type IN ({type_placeholders})
+                  AND e.lifecycle_stage != ''
+                GROUP BY e.lifecycle_stage
+                ORDER BY count DESC, value ASC
+                """,
+                types,
+            ).fetchall()
+            sources = conn.execute(
+                f"""
+                SELECT e.source AS value, COUNT(*) AS count
+                FROM disclosure_events e
+                WHERE e.disclosure_type IN ({type_placeholders})
+                GROUP BY e.source
+                ORDER BY count DESC
+                """,
+                types,
+            ).fetchall()
+            type_counts = {
+                row["disclosure_type"]: row["count"]
+                for row in conn.execute(
+                    f"""
+                    SELECT disclosure_type, COUNT(*) AS count
+                    FROM disclosure_events
+                    WHERE disclosure_type IN ({type_placeholders})
+                    GROUP BY disclosure_type
+                    """,
+                    types,
+                ).fetchall()
+            }
+        return {
+            "years": [{"value": row["value"], "count": row["count"]} for row in years],
+            "districts": [{"value": row["value"], "count": row["count"]} for row in districts],
+            "lifecycle_stages": [{"value": row["value"], "count": row["count"]} for row in lifecycle_stages],
+            "sources": [
+                {
+                    "value": row["value"],
+                    "label": SOURCES.get(row["value"], {}).get("label", row["value"]),
+                    "count": row["count"],
+                }
+                for row in sources
+            ],
+            "disclosure_types": [
+                {
+                    "value": key,
+                    "label": DISCLOSURE_TYPES[key]["label"],
+                    "count": type_counts.get(key, 0),
+                }
+                for key in types
+            ],
+        }
 
     def get_files(self, file_ids: list[int]) -> list[dict[str, Any]]:
         if not file_ids:
@@ -485,8 +733,43 @@ class EIAStore:
 
         return f"{column} {direction}, {master_alias}canonical_name ASC, {table_alias}id ASC"
 
+    @staticmethod
+    def _search_filter_sql(
+        year: str | None,
+        district: str | None,
+        lifecycle_stage: str | None,
+        source: str | None,
+    ) -> tuple[str, list[Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if year:
+            year_checks = [
+                "substr(COALESCE(NULLIF(e.event_date, ''), e.synced_at), 1, 4) = ?",
+            ]
+            params.append(year)
+            for key in SUMMARY_YEAR_JSON_KEYS:
+                year_checks.append(f"json_extract(e.summary_json, '$.{key}') LIKE ?")
+                params.append(f"{year}%")
+            clauses.append(f"AND ({' OR '.join(year_checks)})")
+        if district:
+            clauses.append("AND m.district = ?")
+            params.append(district)
+        if lifecycle_stage:
+            clauses.append("AND e.lifecycle_stage = ?")
+            params.append(lifecycle_stage)
+        if source:
+            clauses.append("AND e.source = ?")
+            params.append(source)
+        return " ".join(clauses), params
+
     def _search_master_ids(
-        self, conn: sqlite3.Connection, query: str, types: list[str], limit: int
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        types: list[str],
+        limit: int,
+        filter_sql: str,
+        filter_params: list[Any],
     ) -> list[int]:
         placeholders = ",".join("?" for _ in types)
         rows = conn.execute(
@@ -497,9 +780,10 @@ class EIAStore:
             JOIN disclosure_events e ON e.master_id = m.id
             WHERE masters_fts MATCH ?
               AND e.disclosure_type IN ({placeholders})
+              {filter_sql}
             LIMIT ?
             """,
-            (self._fts_query(query), *types, limit),
+            (self._fts_query(query), *types, *filter_params, limit),
         ).fetchall()
         return [int(row[0]) for row in rows]
 
@@ -511,6 +795,8 @@ class EIAStore:
         limit: int,
         sort_by: str,
         sort_order: str,
+        filter_sql: str,
+        filter_params: list[Any],
     ):
         if not master_ids:
             return []
@@ -525,14 +811,23 @@ class EIAStore:
             JOIN projects_master m ON m.id = e.master_id
             WHERE m.id IN ({id_placeholders})
               AND e.disclosure_type IN ({type_placeholders})
+              {filter_sql}
             ORDER BY {order_clause}
             LIMIT ?
             """,
-            (*master_ids, *types, limit),
+            (*master_ids, *types, *filter_params, limit),
         ).fetchall()
 
     def _search_events_like(
-        self, conn: sqlite3.Connection, query: str, types: list[str], limit: int, sort_by: str, sort_order: str
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        types: list[str],
+        limit: int,
+        sort_by: str,
+        sort_order: str,
+        filter_sql: str,
+        filter_params: list[Any],
     ):
         placeholders = ",".join("?" for _ in types)
         pattern = f"%{query}%"
@@ -544,6 +839,7 @@ class EIAStore:
             FROM disclosure_events e
             JOIN projects_master m ON m.id = e.master_id
             WHERE e.disclosure_type IN ({placeholders})
+              {filter_sql}
               AND (
                 m.canonical_name LIKE ? OR m.company LIKE ? OR m.location LIKE ?
                 OR m.approval_number LIKE ? OR e.title LIKE ? OR e.summary_json LIKE ?
@@ -552,7 +848,7 @@ class EIAStore:
             ORDER BY {order_clause}
             LIMIT ?
             """,
-            (*types, pattern, pattern, pattern, pattern, pattern, pattern, pattern, limit),
+            (*types, *filter_params, pattern, pattern, pattern, pattern, pattern, pattern, pattern, limit),
         ).fetchall()
 
     def _event_row_to_result(self, conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
@@ -571,6 +867,15 @@ class EIAStore:
         item["pub_period"] = summary.get("pub_period", "")
         item["summary"] = summary.get("summary", "")
         item["agency"] = summary.get("agency", "")
+        event_approval = summary.get("approval_number", "")
+        if not event_approval:
+            parts = (item.get("external_id") or "").split("|")
+            if len(parts) >= 3:
+                event_approval = parts[2].strip()
+        item["event_approval_number"] = event_approval or item.get("approval_number", "")
+        episode_source = {**item, "approval_number": event_approval}
+        item["episode_key"] = episode_group_key_from_event(episode_source)
+        item["episode_label"] = event_approval or item["episode_key"]
         item["files"] = [
             self._enrich_file(dict(file_row))
             for file_row in conn.execute(

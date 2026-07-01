@@ -20,7 +20,28 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: #1f2937; }
     header { background: var(--primary); color: #fff; padding: 20px 24px; }
-    main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    main { max-width: 1400px; margin: 0 auto; padding: 24px; }
+    .toolbar.panel { padding: 14px 20px; }
+    .toolbar .row { gap: 8px; }
+    .toolbar button, .toolbar label { font-size: 13px; padding: 8px 12px; }
+
+    /* e2-style: left filters + right results */
+    .search-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 960px) { .search-layout { grid-template-columns: 1fr; } }
+    .filter-panel { position: sticky; top: 16px; padding: 0; overflow: hidden; }
+    .filter-panel-head { background: var(--primary); color: #fff; padding: 14px 16px; font-weight: 600; }
+    .filter-panel-body { padding: 16px; max-height: calc(100vh - 220px); overflow-y: auto; }
+    .filter-group { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .filter-group:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+    .filter-group h3 { margin: 0 0 10px; font-size: 14px; color: var(--primary); font-weight: 600; }
+    .filter-option { display: flex; align-items: center; gap: 8px; margin: 7px 0; font-size: 14px; cursor: pointer; }
+    .filter-option .count { margin-left: auto; color: var(--muted); font-size: 12px; }
+    .filter-select { width: 100%; margin-top: 4px; }
+    .filter-actions { display: grid; gap: 8px; margin-top: 8px; }
+    .filter-actions button { width: 100%; }
+    .results-panel { min-height: 480px; }
+    .results-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    .results-head h2 { margin: 0; font-size: 18px; color: var(--primary); }
     .panel { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
     .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
     input[type=text] { flex: 1; min-width: 240px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; }
@@ -89,43 +110,100 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div class="row">
-        <input id="query" type="text" placeholder="项目名称、建设单位、批文号…">
-        <button id="searchBtn">搜索</button>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <label><input type="checkbox" class="typeBox" value="acceptance" checked> 受理</label>
-        <label><input type="checkbox" class="typeBox" value="proposed_approval" checked> 拟审批</label>
-        <label><input type="checkbox" class="typeBox" value="approval_decision" checked> 审批决定</label>
-        <label><input type="checkbox" class="typeBox" value="post_construction" checked> 中后期</label>
-      </div>
-      <div id="stats" class="stats" style="margin-top:12px"></div>
-    </section>
-
-    <section class="panel">
+    <section class="toolbar panel">
       <div class="row">
         <button id="syncQuickBtn">手动同步（每类 1 页）</button>
         <button id="syncE2Btn" class="secondary">仅同步中后期（1 页）</button>
         <button id="syncFullBtn" class="secondary">全量同步</button>
         <button id="refreshStatusBtn" class="secondary">刷新状态</button>
-      </div>
-      <div id="syncMessage" class="message"></div>
-    </section>
-
-    <section class="panel">
-      <div class="row">
+        <span style="flex:1"></span>
         <button id="exportDbBtn" class="secondary">导出数据库</button>
         <button id="exportManifestBtn" class="secondary">导出数据清单</button>
-        <label class="secondary" style="cursor:pointer;padding:10px 16px;border-radius:8px;background:#64748b;color:#fff;">
+        <label class="secondary" style="cursor:pointer;padding:8px 12px;border-radius:8px;background:#64748b;color:#fff;font-size:13px;">
           导入数据库<input id="importDbInput" type="file" accept=".zip,.db" hidden>
         </label>
-        <button id="downloadBtn" disabled>下载弹窗内选中的直链文件 (ZIP)</button>
+        <button id="downloadBtn" class="secondary" disabled>下载弹窗内选中 (ZIP)</button>
       </div>
+      <label class="filter-option" style="margin-top:8px;display:block;font-size:13px;color:#475569;">
+        <input id="forceFullSync" type="checkbox">
+        强制全量重下（跳过完整性检查，link + e2 全部重新下载）
+      </label>
+      <div id="syncMessage" class="message"></div>
       <div id="dbMessage" class="message"></div>
-      <div id="resultCount" class="meta" style="margin-top:8px"></div>
-      <div id="results"></div>
     </section>
+
+    <div class="search-layout">
+      <aside class="filter-panel panel">
+        <div class="filter-panel-head">筛选条件</div>
+        <div class="filter-panel-body">
+          <div class="filter-group">
+            <h3>关键字</h3>
+            <input id="query" type="text" placeholder="项目名称、建设单位、批文号…" style="width:100%">
+          </div>
+          <div class="filter-group">
+            <h3>公示类型</h3>
+            <div id="typeFilters">
+              <label class="filter-option"><input type="checkbox" class="typeBox" value="acceptance" checked> 受理信息</label>
+              <label class="filter-option"><input type="checkbox" class="typeBox" value="proposed_approval" checked> 拟审批公示</label>
+              <label class="filter-option"><input type="checkbox" class="typeBox" value="approval_decision" checked> 审批决定公告</label>
+              <label class="filter-option"><input type="checkbox" class="typeBox" value="post_construction" checked> 中后期信息公开</label>
+            </div>
+          </div>
+          <div class="filter-group">
+            <h3>年份</h3>
+            <select id="yearFilter" class="filter-select">
+              <option value="">全部年份</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <h3>所属区域</h3>
+            <select id="districtFilter" class="filter-select">
+              <option value="">全部区域</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <h3>项目阶段</h3>
+            <select id="lifecycleFilter" class="filter-select">
+              <option value="">全部阶段</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <h3>数据来源</h3>
+            <select id="sourceFilter" class="filter-select">
+              <option value="">全部来源</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <h3>排序</h3>
+            <select id="sortBy" class="filter-select">
+              <option value="event_date">按公示日期</option>
+              <option value="synced_at">按同步时间</option>
+              <option value="project_name">按项目名称</option>
+              <option value="type">按公示类型</option>
+            </select>
+            <select id="sortOrder" class="filter-select" style="margin-top:8px">
+              <option value="desc">降序（新→旧）</option>
+              <option value="asc">升序（旧→新）</option>
+            </select>
+          </div>
+          <div class="filter-actions">
+            <button id="searchBtn">查询</button>
+            <button id="resetFiltersBtn" class="secondary">重置条件</button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="results-panel panel">
+        <div class="results-head">
+          <div>
+            <h2>查询结果</h2>
+            <div id="stats" class="stats" style="margin-top:6px"></div>
+          </div>
+          <div id="resultCount" class="meta"></div>
+        </div>
+        <div id="results"></div>
+      </section>
+    </div>
   </main>
 
   <!-- 项目进展（e2 风格时间轴） -->
@@ -177,6 +255,60 @@
       return [...document.querySelectorAll(".typeBox:checked")].map(el => el.value);
     }
 
+    function filterParams() {
+      const params = new URLSearchParams();
+      const q = document.getElementById("query").value.trim();
+      if (q) params.set("q", q);
+      selectedTypes().forEach(t => params.append("types", t));
+      const year = document.getElementById("yearFilter").value;
+      const district = document.getElementById("districtFilter").value;
+      const lifecycle = document.getElementById("lifecycleFilter").value;
+      const source = document.getElementById("sourceFilter").value;
+      if (year) params.set("year", year);
+      if (district) params.set("district", district);
+      if (lifecycle) params.set("lifecycle_stage", lifecycle);
+      if (source) params.set("source", source);
+      params.set("sort_by", document.getElementById("sortBy").value);
+      params.set("sort_order", document.getElementById("sortOrder").value);
+      params.set("limit", "80");
+      return params;
+    }
+
+    function fillSelect(selectId, items, allLabel) {
+      const select = document.getElementById(selectId);
+      const current = select.value;
+      select.innerHTML = `<option value="">${allLabel}</option>`;
+      for (const item of items || []) {
+        const opt = document.createElement("option");
+        opt.value = item.value;
+        opt.textContent = `${item.label || item.value} (${item.count})`;
+        select.appendChild(opt);
+      }
+      if ([...select.options].some(o => o.value === current)) select.value = current;
+    }
+
+    async function loadFacets() {
+      const params = new URLSearchParams();
+      selectedTypes().forEach(t => params.append("types", t));
+      const data = await (await fetch(`/api/search/facets?${params}`)).json();
+      fillSelect("yearFilter", data.years, "全部年份");
+      fillSelect("districtFilter", data.districts, "全部区域");
+      fillSelect("lifecycleFilter", data.lifecycle_stages, "全部阶段");
+      fillSelect("sourceFilter", data.sources?.map(s => ({ value: s.value, label: s.label, count: s.count })), "全部来源");
+    }
+
+    function resetFilters() {
+      document.getElementById("query").value = "";
+      document.querySelectorAll(".typeBox").forEach(el => { el.checked = true; });
+      document.getElementById("yearFilter").value = "";
+      document.getElementById("districtFilter").value = "";
+      document.getElementById("lifecycleFilter").value = "";
+      document.getElementById("sourceFilter").value = "";
+      document.getElementById("sortBy").value = "event_date";
+      document.getElementById("sortOrder").value = "desc";
+      loadFacets().then(search);
+    }
+
     async function loadStats() {
       const data = await (await fetch("/api/stats")).json();
       const latest = data.latest_sync;
@@ -193,20 +325,26 @@
     }
 
     async function search() {
-      const params = new URLSearchParams();
-      const q = document.getElementById("query").value.trim();
-      if (q) params.set("q", q);
-      selectedTypes().forEach(t => params.append("types", t));
-      params.set("limit", "80");
-      const data = await (await fetch(`/api/search?${params}`, { cache: "no-store" })).json();
+      const data = await (await fetch(`/api/search?${filterParams()}`, { cache: "no-store" })).json();
 
-      const byMaster = new Map();
-      for (const item of data.results || []) {
-        const id = item.master_id || item.id;
-        if (!byMaster.has(id)) byMaster.set(id, item);
+      const byCard = new Map();
+      function preferCard(next, current) {
+        if (!current) return true;
+        if (next.disclosure_type === "approval_decision") return true;
+        if (current.disclosure_type === "approval_decision") return false;
+        const nextLabel = next.episode_label || "";
+        const currentLabel = current.episode_label || "";
+        if (nextLabel.startsWith("round_") && !currentLabel.startsWith("round_")) return false;
+        if (!nextLabel.startsWith("round_") && currentLabel.startsWith("round_")) return true;
+        return false;
       }
-      const cards = [...byMaster.values()];
-      document.getElementById("resultCount").textContent = `共 ${cards.length} 个项目（${(data.results || []).length} 条匹配事件）`;
+      for (const item of data.results || []) {
+        const cardKey = `${item.master_id}:${item.episode_key || item.event_approval_number || ""}`;
+        const current = byCard.get(cardKey);
+        if (preferCard(item, current)) byCard.set(cardKey, item);
+      }
+      const cards = [...byCard.values()];
+      document.getElementById("resultCount").textContent = `共 ${cards.length} 条项目记录（${(data.results || []).length} 条匹配事件）`;
       renderResults(cards);
     }
 
@@ -222,24 +360,27 @@
           <h3>${item.project_name}</h3>
           <div class="meta">
             <span class="badge">${item.disclosure_label || ""}</span>
+            ${item.episode_label && !String(item.episode_label).startsWith("round_") ? "环评轮次：" + item.episode_label + "；" : (item.episode_key && String(item.episode_key).startsWith("round_") ? "年份：" + item.episode_key.replace("round_", "") + "；" : "")}
             ${item.company ? "建设单位：" + item.company + "；" : ""}
-            ${item.approval_number ? "批文号：" + item.approval_number + "；" : ""}
+            ${item.district ? "区域：" + item.district + "；" : ""}
             ${item.lifecycle_stage ? "阶段：" + item.lifecycle_stage + "；" : ""}
+            ${item.event_date ? "日期：" + String(item.event_date).slice(0, 10) + "；" : ""}
           </div>
           <div class="row" style="margin:12px 0">
-            <button class="progressBtn" data-master="${item.master_id}">查看项目进展（全生命周期）</button>
+            <button class="progressBtn" data-master="${item.master_id}" data-episode="${encodeURIComponent(item.episode_key || "")}">查看项目进展（全生命周期）</button>
           </div>
           <div class="meta">附件按阶段归类，请在全生命周期视图中查看与下载</div>`;
         container.appendChild(div);
       });
 
       container.querySelectorAll(".progressBtn").forEach(btn => {
-        btn.addEventListener("click", () => openProgress(Number(btn.dataset.master)));
+        btn.addEventListener("click", () => openProgress(Number(btn.dataset.master), decodeURIComponent(btn.dataset.episode || "")));
       });
     }
 
-    async function openProgress(masterId) {
-      const res = await fetch(`/api/master/${masterId}/progress`);
+    async function openProgress(masterId, episodeKey = "") {
+      const params = episodeKey ? `?episode=${encodeURIComponent(episodeKey)}` : "";
+      const res = await fetch(`/api/master/${masterId}/progress${params}`);
       if (!res.ok) { alert("无法加载项目进展"); return; }
       progressData = await res.json();
       const master = progressData.master;
@@ -366,6 +507,7 @@
 
     async function startSync(fullSync, opts = {}) {
       document.getElementById("syncMessage").textContent = "提交同步任务…";
+      const force = fullSync && document.getElementById("forceFullSync").checked;
       const res = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -375,6 +517,7 @@
           full_sync: fullSync,
           max_pages: 1,
           fetch_e2_details: true,
+          force,
         }),
       });
       const data = await res.json();
@@ -396,11 +539,21 @@
     }
 
     document.getElementById("searchBtn").addEventListener("click", search);
+    document.getElementById("resetFiltersBtn").addEventListener("click", resetFilters);
     document.getElementById("query").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
-    document.querySelectorAll(".typeBox").forEach(b => b.addEventListener("change", search));
+    document.querySelectorAll(".typeBox").forEach(b => b.addEventListener("change", () => loadFacets().then(search)));
+    ["yearFilter", "districtFilter", "lifecycleFilter", "sourceFilter", "sortBy", "sortOrder"].forEach(id => {
+      document.getElementById(id).addEventListener("change", search);
+    });
     document.getElementById("syncQuickBtn").addEventListener("click", () => startSync(false));
     document.getElementById("syncE2Btn").addEventListener("click", () => startSync(false, { sources: ["e2_qygk"], types: ["post_construction"] }));
-    document.getElementById("syncFullBtn").addEventListener("click", () => { if (confirm("全量同步耗时较长，确定？")) startSync(true); });
+    document.getElementById("syncFullBtn").addEventListener("click", () => {
+      const force = document.getElementById("forceFullSync").checked;
+      const hint = force
+        ? "将强制重新下载全部数据（跳过完整性检查），耗时很长，确定？"
+        : "全量同步会先检查本地是否完整；已完整则跳过下载。确定开始？";
+      if (confirm(hint)) startSync(true);
+    });
     document.getElementById("refreshStatusBtn").addEventListener("click", refreshSyncStatus);
     document.getElementById("downloadBtn").addEventListener("click", downloadZip);
     document.getElementById("progressClose").addEventListener("click", () => document.getElementById("progressModal").classList.remove("show"));
@@ -439,7 +592,7 @@
 
     loadStats();
     refreshSyncStatus();
-    search();
+    loadFacets().then(search);
   </script>
 </body>
 </html>

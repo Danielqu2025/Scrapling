@@ -131,6 +131,8 @@ class SyncRequest(BaseModel):
     full_sync: bool = False
     max_pages: int = Field(default=1, ge=1, description="Used when full_sync is false.")
     fetch_e2_details: bool = True
+    force: bool = Field(default=False, description="Skip completeness check and force full download.")
+    skip_completeness_check: bool = Field(default=False, description="Run full sync without pre-check.")
 
 
 class DownloadRequest(BaseModel):
@@ -165,6 +167,8 @@ def _run_sync_job(
     max_pages: int | None,
     fetch_e2_details: bool,
     trigger_mode: str,
+    force: bool = False,
+    skip_completeness_check: bool = False,
 ) -> None:
     global sync_running
     with sync_lock:
@@ -177,9 +181,11 @@ def _run_sync_job(
             max_pages=max_pages,
             fetch_e2_details=fetch_e2_details,
             trigger_mode=trigger_mode,
+            force=force,
+            skip_completeness_check=skip_completeness_check,
         )
         status = result.get("status", "failed")
-        if status == "success":
+        if status == "success" and not result.get("skipped"):
             store.write_manifest()
     finally:
         with sync_lock:
@@ -212,19 +218,28 @@ def api_manifest(refresh: bool = Query(default=False)) -> dict[str, Any]:
 
 
 @app.get("/api/master/{master_id}/progress")
-def api_master_progress(master_id: int) -> dict[str, Any]:
-    progress = store.get_progress(master_id)
+def api_master_progress(master_id: int, episode: str = Query(default="")) -> dict[str, Any]:
+    progress = store.get_progress(master_id, episode_key=episode or None)
     if progress is None:
         raise HTTPException(status_code=404, detail="未找到该项目。")
     return progress
 
 
 @app.get("/api/master/{master_id}/timeline")
-def api_master_timeline(master_id: int) -> dict[str, Any]:
-    timeline = store.get_timeline(master_id)
+def api_master_timeline(master_id: int, episode: str = Query(default="")) -> dict[str, Any]:
+    timeline = store.get_timeline(master_id, episode_key=episode or None)
     if timeline is None:
         raise HTTPException(status_code=404, detail="未找到该项目。")
     return timeline
+
+
+@app.get("/api/search/facets")
+def api_search_facets(types: list[str] = Query(default=[])) -> dict[str, Any]:
+    selected_types = types or list(DISCLOSURE_TYPES)
+    for disclosure_type in selected_types:
+        if disclosure_type not in DISCLOSURE_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unknown disclosure type: {disclosure_type}")
+    return store.search_facets(disclosure_types=selected_types)
 
 
 @app.get("/api/search")
@@ -232,9 +247,13 @@ def api_search(
     response: Response,
     q: str = Query(default=""),
     types: list[str] = Query(default=[]),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=80, ge=1, le=200),
     sort_by: str = Query(default="event_date", description="event_date | synced_at | type | project_name"),
     sort_order: str = Query(default="desc", description="asc | desc"),
+    year: str = Query(default=""),
+    district: str = Query(default=""),
+    lifecycle_stage: str = Query(default=""),
+    source: str = Query(default=""),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     selected_types = types or list(DISCLOSURE_TYPES)
@@ -245,17 +264,29 @@ def api_search(
         raise HTTPException(status_code=400, detail=f"Unknown sort_by: {sort_by}")
     if sort_order not in SORT_ORDER_OPTIONS:
         raise HTTPException(status_code=400, detail=f"Unknown sort_order: {sort_order}")
+    if source and source not in {SOURCE_LINK_STHJ, SOURCE_E2_QYGK}:
+        raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
     results = store.search(
         q,
         disclosure_types=selected_types,
         limit=limit,
         sort_by=sort_by,
         sort_order=sort_order,
+        year=year or None,
+        district=district or None,
+        lifecycle_stage=lifecycle_stage or None,
+        source=source or None,
     )
     return {
         "query": q,
         "sort_by": sort_by,
         "sort_order": sort_order,
+        "filters": {
+            "year": year or None,
+            "district": district or None,
+            "lifecycle_stage": lifecycle_stage or None,
+            "source": source or None,
+        },
         "count": len(results),
         "results": results,
     }
@@ -341,14 +372,35 @@ def api_sync(request: SyncRequest, background_tasks: BackgroundTasks) -> dict[st
         max_pages,
         request.fetch_e2_details,
         "manual",
+        request.force,
+        request.skip_completeness_check,
     )
+    check_hint = ""
+    if request.full_sync and not request.force and not request.skip_completeness_check:
+        check_hint = "（将先检查本地数据完整性，已完整则跳过下载）"
     return {
         "status": "accepted",
-        "message": f"同步任务已开始（{mode_label}），可在同步状态中查看进度。",
+        "message": f"同步任务已开始（{mode_label}）{check_hint}，可在同步状态中查看进度。",
         "full_sync": request.full_sync,
         "max_pages": max_pages,
         "disclosure_types": request.disclosure_types,
     }
+
+
+@app.get("/api/sync/completeness")
+def api_sync_completeness(
+    sources: list[str] = Query(default=[]),
+    types: list[str] = Query(default=[]),
+) -> dict[str, Any]:
+    selected_sources = sources or [SOURCE_LINK_STHJ, SOURCE_E2_QYGK]
+    selected_types = types or list(DISCLOSURE_TYPES)
+    for source in selected_sources:
+        if source not in {SOURCE_LINK_STHJ, SOURCE_E2_QYGK}:
+            raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
+    for disclosure_type in selected_types:
+        if disclosure_type not in DISCLOSURE_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unknown disclosure type: {disclosure_type}")
+    return sync_service.check_completeness(sources=selected_sources, disclosure_types=selected_types)
 
 
 @app.post("/api/download/e2/captcha")
