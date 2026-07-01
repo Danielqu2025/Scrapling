@@ -179,6 +179,8 @@ def _run_sync_job(
             trigger_mode=trigger_mode,
         )
         status = result.get("status", "failed")
+        if status == "success":
+            store.write_manifest()
     finally:
         with sync_lock:
             sync_running = False
@@ -198,6 +200,15 @@ def index() -> HTMLResponse:
 @app.get("/api/stats")
 def api_stats() -> dict[str, Any]:
     return store.stats()
+
+
+@app.get("/api/manifest")
+def api_manifest(refresh: bool = Query(default=False)) -> dict[str, Any]:
+    if refresh or store.read_manifest() is None:
+        return store.write_manifest()
+    manifest = store.read_manifest()
+    assert manifest is not None
+    return manifest
 
 
 @app.get("/api/master/{master_id}/progress")

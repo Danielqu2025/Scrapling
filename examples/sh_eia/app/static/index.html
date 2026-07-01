@@ -116,6 +116,7 @@
     <section class="panel">
       <div class="row">
         <button id="exportDbBtn" class="secondary">导出数据库</button>
+        <button id="exportManifestBtn" class="secondary">导出数据清单</button>
         <label class="secondary" style="cursor:pointer;padding:10px 16px;border-radius:8px;background:#64748b;color:#fff;">
           导入数据库<input id="importDbInput" type="file" accept=".zip,.db" hidden>
         </label>
@@ -414,6 +415,17 @@
       a.href = URL.createObjectURL(blob);
       a.download = "sh_eia_backup.zip";
       a.click();
+    });
+    document.getElementById("exportManifestBtn").addEventListener("click", async () => {
+      const res = await fetch("/api/manifest?refresh=1");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "sh_eia_manifest.json";
+      a.click();
+      document.getElementById("dbMessage").textContent =
+        `数据清单已导出：${data.stats?.total_masters ?? 0} 个项目，${data.stats?.total_events ?? 0} 条事件，${data.stats?.total_files ?? 0} 个文件。`;
     });
     document.getElementById("importDbInput").addEventListener("change", async e => {
       const file = e.target.files?.[0];

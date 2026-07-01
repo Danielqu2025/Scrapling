@@ -12,7 +12,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterator
 
-from _paths import DB_PATH
+from _paths import DB_PATH, MANIFEST_PATH
 from db.migrate import migrate_if_needed
 from db.resolver import MasterResolver, get_schema_version, pick_event_date
 from db.schema import FTS_REBUILD_SQL, SCHEMA_V2_SQL, SCHEMA_VERSION
@@ -362,6 +362,26 @@ class EIAStore:
                 "by_source": by_source,
                 "latest_sync": latest,
             }
+
+    def build_manifest(self) -> dict[str, Any]:
+        stats = self.stats()
+        return {
+            "exported_at": utc_now(),
+            "stats": stats,
+            "events_by_type": stats["by_type"],
+            "events_by_source": stats["by_source"],
+        }
+
+    def write_manifest(self) -> dict[str, Any]:
+        manifest = self.build_manifest()
+        MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MANIFEST_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return manifest
+
+    def read_manifest(self) -> dict[str, Any] | None:
+        if not MANIFEST_PATH.exists():
+            return None
+        return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
     def export_database_zip(self) -> bytes:
         buffer = BytesIO()
