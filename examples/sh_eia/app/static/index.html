@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上海环评资料检索</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+    body { margin: 0; background: #f4f7fb; color: #1f2937; }
+    header { background: #0b5f7a; color: #fff; padding: 20px 24px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .panel { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    input[type=text] { flex: 1; min-width: 240px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; }
+    select { padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+    button { padding: 10px 16px; border: 0; border-radius: 8px; cursor: pointer; background: #0b5f7a; color: #fff; }
+    button.secondary { background: #64748b; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    .stats { color: #475569; font-size: 14px; }
+    .result { border-top: 1px solid #e2e8f0; padding: 14px 0; }
+    .result h3 { margin: 0 0 8px; font-size: 18px; }
+    .meta { color: #64748b; font-size: 14px; margin-bottom: 8px; }
+    .files label { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; font-size: 14px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e0f2fe; color: #075985; font-size: 12px; margin-right: 8px; }
+    .toolbar { margin-top: 12px; }
+    .message { margin-top: 10px; color: #0369a1; }
+    .error { color: #b91c1c; }
+    .update-banner {
+      display: none;
+      background: #fff7ed;
+      border: 1px solid #fdba74;
+      color: #9a3412;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.04);
+    }
+    .update-banner.show { display: block; }
+    .update-banner.info { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+    .update-banner.success { background: #f0fdf4; border-color: #86efac; color: #166534; }
+    .update-banner .actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>上海环评资料检索</h1>
+    <p>支持受理信息、拟审批公示、审批决定公告的关键字搜索与批量下载</p>
+  </header>
+  <main>
+    <section id="updateBanner" class="update-banner">
+      <div id="updateBannerText"></div>
+      <div class="actions">
+        <button id="updateSyncBtn" hidden>立即同步</button>
+        <button id="updateDismissBtn" class="secondary" hidden>稍后处理</button>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="row">
+        <input id="query" type="text" placeholder="输入项目名称、建设单位、批文号等关键词">
+        <button id="searchBtn">搜索</button>
+      </div>
+      <div class="row toolbar">
+        <label><input type="checkbox" class="typeBox" value="acceptance" checked> 受理信息</label>
+        <label><input type="checkbox" class="typeBox" value="proposed_approval" checked> 拟审批公示</label>
+        <label><input type="checkbox" class="typeBox" value="approval_decision" checked> 审批决定公告</label>
+      </div>
+      <div class="row toolbar">
+        <label>排序
+          <select id="sortBy">
+            <option value="event_date">批文/公示时间</option>
+            <option value="synced_at">同步时间</option>
+            <option value="type">公示类型</option>
+            <option value="project_name">项目名称</option>
+          </select>
+        </label>
+        <label>顺序
+          <select id="sortOrder">
+            <option value="desc">新 → 旧 / Z → A</option>
+            <option value="asc">旧 → 新 / A → Z</option>
+          </select>
+        </label>
+      </div>
+      <div id="stats" class="stats"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row">
+        <button id="syncQuickBtn">手动同步（每类 1 页）</button>
+        <button id="syncFullBtn" class="secondary">全量同步（耗时较长）</button>
+        <button id="refreshStatusBtn" class="secondary">刷新状态</button>
+      </div>
+      <div id="syncMessage" class="message"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row">
+        <button id="exportDbBtn" class="secondary">导出数据库 (ZIP)</button>
+        <label class="secondary" style="cursor:pointer;padding:10px 16px;border-radius:8px;background:#64748b;color:#fff;">
+          导入数据库
+          <input id="importDbInput" type="file" accept=".zip,.db" hidden>
+        </label>
+      </div>
+      <div class="stats">导出后可分享给他人；对方导入即可使用，无需重新安装或抓取。</div>
+      <div id="dbMessage" class="message"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row">
+        <button id="downloadBtn" disabled>下载选中文件 (ZIP)</button>
+        <span id="resultCount"></span>
+      </div>
+      <div id="results"></div>
+    </section>
+  </main>
+
+  <script>
+    const selectedFileIds = new Set();
+    let syncPollTimer = null;
+    let syncWasRunning = false;
+    let updateBannerDismissed = false;
+
+    function selectedTypes() {
+      return [...document.querySelectorAll(".typeBox:checked")].map(el => el.value);
+    }
+
+    async function loadStats() {
+      const res = await fetch("/api/stats");
+      const data = await res.json();
+      const latest = data.latest_sync;
+      const latestText = latest
+        ? `最近同步：${latest.status} / ${latest.started_at || ""} / ${latest.message || ""}`
+        : "尚未同步";
+      document.getElementById("stats").textContent =
+        `项目 ${data.total_projects} 条，文件 ${data.total_files} 个。${latestText}`;
+    }
+
+    async function refreshSyncStatus() {
+      const res = await fetch("/api/sync/status");
+      const data = await res.json();
+      let msg;
+      if (data.running) {
+        msg = data.latest?.message || "同步任务进行中，请稍候...";
+      } else if (data.latest) {
+        msg = `${data.latest.status} - ${data.latest.message}`;
+        try {
+          const stats = JSON.parse(data.latest.stats_json || "{}");
+          if (stats.types) {
+            const parts = Object.entries(stats.types).map(([key, val]) => `${key}:${val.pages}页`);
+            msg += `（${parts.join("，")}）`;
+          }
+        } catch (_) {}
+      } else {
+        msg = "暂无同步记录";
+      }
+      document.getElementById("syncMessage").textContent = msg;
+      return data;
+    }
+
+    function scheduleSyncStatusPoll(delayMs) {
+      clearTimeout(syncPollTimer);
+      syncPollTimer = setTimeout(pollSyncStatus, delayMs);
+    }
+
+    async function refreshUpdateStatus() {
+      const res = await fetch("/api/updates/status", { cache: "no-store" });
+      const data = await res.json();
+      const banner = document.getElementById("updateBanner");
+      const text = document.getElementById("updateBannerText");
+      const syncBtn = document.getElementById("updateSyncBtn");
+      const dismissBtn = document.getElementById("updateDismissBtn");
+
+      banner.classList.remove("info", "success", "show");
+      syncBtn.hidden = true;
+      dismissBtn.hidden = true;
+
+      if (data.checking) {
+        banner.classList.add("show", "info");
+        text.textContent = "正在检查官网是否有新公示...";
+        return data;
+      }
+
+      if (data.error) {
+        banner.classList.add("show", "info");
+        text.textContent = data.message || "检查更新失败，可稍后重试。";
+        return data;
+      }
+
+      if (data.has_updates && !updateBannerDismissed) {
+        banner.classList.add("show");
+        let detail = data.message || `发现 ${data.new_count} 条新公示`;
+        if (data.auto_sync_started) {
+          detail += "，已自动开始同步。";
+        } else {
+          syncBtn.hidden = false;
+          dismissBtn.hidden = false;
+        }
+        text.textContent = detail;
+        return data;
+      }
+
+      return data;
+    }
+
+    async function pollSyncStatus() {
+      try {
+        const data = await refreshSyncStatus();
+        await refreshUpdateStatus();
+        if (syncWasRunning && !data.running) {
+          await loadStats();
+          await search();
+        }
+        syncWasRunning = data.running;
+        scheduleSyncStatusPoll(data.running ? 3000 : 15000);
+      } catch (_) {
+        scheduleSyncStatusPoll(15000);
+      }
+    }
+
+    function getSortValue(item, sortBy) {
+      if (sortBy === "type") {
+        const order = { acceptance: 1, proposed_approval: 2, approval_decision: 3 };
+        return order[item.disclosure_type] || 99;
+      }
+      if (sortBy === "synced_at") return item.synced_at || "";
+      if (sortBy === "project_name") return item.project_name || "";
+      const pubMatch = (item.pub_period || "").match(/\d{4}-\d{2}-\d{2}/);
+      return item.approval_date || (pubMatch ? pubMatch[0] : "") || item.synced_at || "";
+    }
+
+    function compareSortValues(left, right, sortBy) {
+      const leftVal = getSortValue(left, sortBy);
+      const rightVal = getSortValue(right, sortBy);
+      if (sortBy === "project_name") {
+        return String(leftVal).localeCompare(String(rightVal), "zh-CN");
+      }
+      if (sortBy === "synced_at" || sortBy === "event_date") {
+        const leftTime = Date.parse(leftVal);
+        const rightTime = Date.parse(rightVal);
+        if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime)) {
+          return leftTime - rightTime;
+        }
+      }
+      if (typeof leftVal === "number" && typeof rightVal === "number") {
+        return leftVal - rightVal;
+      }
+      return String(leftVal).localeCompare(String(rightVal));
+    }
+
+    function sortResults(results, sortBy, sortOrder) {
+      const mult = sortOrder === "asc" ? 1 : -1;
+      return [...results].sort((left, right) => {
+        const cmp = compareSortValues(left, right, sortBy);
+        if (cmp !== 0) return cmp * mult;
+        const nameCmp = String(left.project_name || "").localeCompare(
+          String(right.project_name || ""),
+          "zh-CN",
+        );
+        if (nameCmp !== 0) return nameCmp;
+        return left.id - right.id;
+      });
+    }
+
+    function currentSortLabels() {
+      const sortBy = document.getElementById("sortBy").value;
+      const sortOrder = document.getElementById("sortOrder").value;
+      const fieldLabels = {
+        event_date: "批文/公示时间",
+        synced_at: "同步时间",
+        type: "公示类型",
+        project_name: "项目名称",
+      };
+      const orderLabels = {
+        asc: sortBy === "type" ? "受理→拟审批→决定" : sortBy === "project_name" ? "A→Z" : "旧→新",
+        desc: sortBy === "type" ? "决定→拟审批→受理" : sortBy === "project_name" ? "Z→A" : "新→旧",
+      };
+      return { sortBy, sortOrder, label: `${fieldLabels[sortBy] || sortBy} ${orderLabels[sortOrder] || sortOrder}` };
+    }
+
+    function renderResults(payload) {
+      selectedFileIds.clear();
+      document.getElementById("downloadBtn").disabled = true;
+      const sortBy = payload.sort_by || document.getElementById("sortBy").value;
+      const sortOrder = payload.sort_order || document.getElementById("sortOrder").value;
+      const results = sortResults(payload.results || [], sortBy, sortOrder);
+      const sortInfo = currentSortLabels();
+      document.getElementById("resultCount").textContent = `共 ${results.length} 条，按${sortInfo.label}排列`;
+      const container = document.getElementById("results");
+      container.innerHTML = "";
+      results.forEach(item => {
+        const block = document.createElement("div");
+        block.className = "result";
+        const filesHtml = (item.files || []).map(file => `
+          <label>
+            <input type="checkbox" class="fileBox" value="${file.id}">
+            [${file.file_type_label || file.file_type}] ${file.file_name || file.file_url}
+          </label>
+        `).join("");
+        block.innerHTML = `
+          <h3>${item.project_name}</h3>
+          <div class="meta">
+            <span class="badge">${item.disclosure_label}</span>
+            ${item.company ? "建设单位：" + item.company + "；" : ""}
+            ${item.approval_number ? "批文号：" + item.approval_number + "；" : ""}
+            ${item.pub_period ? "公示期：" + item.pub_period + "；" : ""}
+            ${item.approval_date ? "批文时间：" + item.approval_date + "；" : ""}
+          </div>
+          <div class="files">${filesHtml || "暂无可下载文件"}</div>
+        `;
+        container.appendChild(block);
+      });
+      container.querySelectorAll(".fileBox").forEach(box => {
+        box.addEventListener("change", () => {
+          if (box.checked) selectedFileIds.add(Number(box.value));
+          else selectedFileIds.delete(Number(box.value));
+          document.getElementById("downloadBtn").disabled = selectedFileIds.size === 0;
+        });
+      });
+    }
+
+    function updateSortOrderLabels() {
+      const sortBy = document.getElementById("sortBy").value;
+      const sortOrder = document.getElementById("sortOrder");
+      const desc = sortOrder.querySelector('option[value="desc"]');
+      const asc = sortOrder.querySelector('option[value="asc"]');
+      if (sortBy === "type") {
+        desc.textContent = "决定 → 拟审批 → 受理";
+        asc.textContent = "受理 → 拟审批 → 决定";
+      } else if (sortBy === "project_name") {
+        desc.textContent = "Z → A";
+        asc.textContent = "A → Z";
+      } else {
+        desc.textContent = "新 → 旧";
+        asc.textContent = "旧 → 新";
+      }
+    }
+
+    async function search() {
+      const q = document.getElementById("query").value.trim();
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      selectedTypes().forEach(type => params.append("types", type));
+      params.set("sort_by", document.getElementById("sortBy").value);
+      params.set("sort_order", document.getElementById("sortOrder").value);
+      const res = await fetch(`/api/search?${params.toString()}`, { cache: "no-store" });
+      const data = await res.json();
+      data.sort_by = params.get("sort_by");
+      data.sort_order = params.get("sort_order");
+      renderResults(data);
+    }
+
+    async function startSync(fullSync) {
+      document.getElementById("syncMessage").textContent = "正在提交同步任务...";
+      const res = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          disclosure_types: selectedTypes(),
+          full_sync: fullSync,
+          max_pages: 1,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("syncMessage").innerHTML = `<span class="error">${data.detail || "同步失败"}</span>`;
+        return;
+      }
+      document.getElementById("syncMessage").textContent = data.message;
+      syncWasRunning = true;
+      await pollSyncStatus();
+    }
+
+    async function downloadSelected() {
+      const res = await fetch("/api/download/zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_ids: [...selectedFileIds] }),
+      });
+      if (!res.ok) {
+        alert("下载失败");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "sh_eia_files.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function exportDatabase() {
+      document.getElementById("dbMessage").textContent = "正在导出数据库...";
+      const res = await fetch("/api/database/export", { cache: "no-store" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        document.getElementById("dbMessage").innerHTML = `<span class="error">${data.detail || "导出失败"}</span>`;
+        return;
+      }
+      const blob = await res.blob();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sh_eia_backup_${stamp}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      document.getElementById("dbMessage").textContent = "数据库已导出，可发送给同事导入使用。";
+    }
+
+    async function importDatabase(file) {
+      if (!file) return;
+      if (!confirm(`确定导入「${file.name}」？当前数据库会自动备份。`)) return;
+      document.getElementById("dbMessage").textContent = "正在导入数据库...";
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/database/import", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("dbMessage").innerHTML = `<span class="error">${data.detail || "导入失败"}</span>`;
+        return;
+      }
+      document.getElementById("dbMessage").textContent =
+        `${data.message} 项目 ${data.restored_projects} 条，文件 ${data.restored_files} 个。`;
+      document.getElementById("importDbInput").value = "";
+      await loadStats();
+      await search();
+    }
+
+    document.getElementById("updateSyncBtn").addEventListener("click", () => {
+      updateBannerDismissed = true;
+      document.getElementById("updateBanner").classList.remove("show");
+      startSync(false);
+    });
+    document.getElementById("updateDismissBtn").addEventListener("click", () => {
+      updateBannerDismissed = true;
+      document.getElementById("updateBanner").classList.remove("show");
+    });
+    document.getElementById("searchBtn").addEventListener("click", search);
+    document.querySelectorAll(".typeBox").forEach(box => box.addEventListener("change", search));
+    document.getElementById("sortBy").addEventListener("change", () => {
+      updateSortOrderLabels();
+      search();
+    });
+    document.getElementById("sortOrder").addEventListener("change", search);
+    document.getElementById("syncQuickBtn").addEventListener("click", () => startSync(false));
+    document.getElementById("syncFullBtn").addEventListener("click", () => {
+      if (confirm("全量同步可能需要数小时，确定继续吗？")) startSync(true);
+    });
+    document.getElementById("refreshStatusBtn").addEventListener("click", refreshSyncStatus);
+    document.getElementById("downloadBtn").addEventListener("click", downloadSelected);
+    document.getElementById("exportDbBtn").addEventListener("click", exportDatabase);
+    document.getElementById("importDbInput").addEventListener("change", e => {
+      const file = e.target.files?.[0];
+      if (file) importDatabase(file);
+    });
+    document.getElementById("query").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+
+    updateSortOrderLabels();
+    loadStats();
+    pollSyncStatus();
+    search();
+  </script>
+</body>
+</html>

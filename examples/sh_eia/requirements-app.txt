@@ -1,0 +1,5 @@
+# Extra dependencies for the team-facing web app (04_run_server.py)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+apscheduler>=3.10.4
+python-multipart>=0.0.9

@@ -1,0 +1,2 @@
+# Build dependencies for portable single-file package
+pyinstaller>=6.10.0

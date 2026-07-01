@@ -1,0 +1,20 @@
+# PyInstaller / portable build
+dist/
+build/
+ShEIA.spec
+*.spec.bak
+
+# Archives (distribute via Releases or file share, not Git)
+*.zip
+
+# Local Python environment
+.venv/
+venv/
+
+# Runtime data (see also data/.gitignore and output/.gitignore)
+*.db
+*.db-*
+
+# Python cache
+__pycache__/
+*.py[cod]
