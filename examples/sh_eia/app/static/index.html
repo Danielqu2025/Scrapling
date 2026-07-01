@@ -119,7 +119,7 @@
         <label class="secondary" style="cursor:pointer;padding:10px 16px;border-radius:8px;background:#64748b;color:#fff;">
           导入数据库<input id="importDbInput" type="file" accept=".zip,.db" hidden>
         </label>
-        <button id="downloadBtn" disabled>下载选中直链文件 (ZIP)</button>
+        <button id="downloadBtn" disabled>下载弹窗内选中的直链文件 (ZIP)</button>
       </div>
       <div id="dbMessage" class="message"></div>
       <div id="resultCount" class="meta" style="margin-top:8px"></div>
@@ -217,16 +217,6 @@
       items.forEach(item => {
         const div = document.createElement("div");
         div.className = "result-card";
-        const filesHtml = (item.files || []).map(f => `
-          <div class="file-item">
-            <label>
-              <input type="checkbox" class="fileBox" value="${f.id}" data-captcha="${f.download_status === "captcha_required" ? "1" : "0"}" ${f.download_status === "captcha_required" ? "" : ""}>
-              [${f.file_type_label || f.file_type}] ${f.file_name || ""}
-            </label>
-            ${f.download_status === "captcha_required"
-              ? `<button class="linkish captchaBtn" data-file-id="${f.id}">验证码下载</button>`
-              : ""}
-          </div>`).join("");
         div.innerHTML = `
           <h3>${item.project_name}</h3>
           <div class="meta">
@@ -238,23 +228,12 @@
           <div class="row" style="margin:12px 0">
             <button class="progressBtn" data-master="${item.master_id}">查看项目进展（全生命周期）</button>
           </div>
-          <div class="file-list">${filesHtml || "<span class='meta'>展开项目进展查看附件</span>"}</div>`;
+          <div class="meta">附件按阶段归类，请在全生命周期视图中查看与下载</div>`;
         container.appendChild(div);
       });
 
-      container.querySelectorAll(".fileBox").forEach(box => {
-        box.addEventListener("change", () => {
-          if (box.dataset.captcha === "1") return;
-          if (box.checked) selectedFileIds.add(Number(box.value));
-          else selectedFileIds.delete(Number(box.value));
-          document.getElementById("downloadBtn").disabled = selectedFileIds.size === 0;
-        });
-      });
       container.querySelectorAll(".progressBtn").forEach(btn => {
         btn.addEventListener("click", () => openProgress(Number(btn.dataset.master)));
-      });
-      container.querySelectorAll(".captchaBtn").forEach(btn => {
-        btn.addEventListener("click", () => openCaptcha(Number(btn.dataset.fileId)));
       });
     }
 
