@@ -64,7 +64,7 @@ FILE_TYPE_LABELS = {
     "attachment": "附件",
 }
 
-# e2 detail page lifecycle tab -> file_type buckets used by timeline_view
+# e2 详情页「报批前公示」tab 的附件类型（解析用；展示时归并到 link 三步，见 timeline_view）
 E2_PHASE_FILE_TYPES: dict[str, set[str]] = {
     "pre": {"pre_approval_notice", "pre_approval_entrust"},
     "basic": set(),

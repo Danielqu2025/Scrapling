@@ -78,7 +78,7 @@
 <body>
   <header>
     <h1>上海环评资料检索</h1>
-    <p>整合投用前公示与中后期信息公开，按项目全生命周期展示（借鉴上海市环评公开平台时间轴）</p>
+    <p>整合投用前公示（受理→拟审批→审批决定）与中后期信息公开，按项目全生命周期展示</p>
   </header>
   <main>
     <section id="updateBanner" class="update-banner panel">
@@ -245,7 +245,9 @@
       document.getElementById("progressTitle").textContent = master.canonical_name || "项目进展";
       document.getElementById("progressMeta").textContent =
         [master.company, master.approval_number, master.location].filter(Boolean).join(" · ");
-      const first = progressData.stages.find(s => s.status !== "empty") || progressData.stages[0];
+      const first = progressData.stages.find(s => s.key === "basic_info" && s.status !== "empty")
+        || progressData.stages.find(s => s.status !== "empty")
+        || progressData.stages[0];
       activeStageKey = first.key;
       renderStageRail();
       renderStagePanel(activeStageKey);

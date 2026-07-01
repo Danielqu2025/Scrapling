@@ -8,20 +8,29 @@ from typing import Any
 
 from sources.types import E2_PHASE_FILE_TYPES, FILE_TYPE_LABELS
 
-# Fixed stage rail: pre-approval (link) then post-approval (e2-style tabs)
+# 项目基本信息置顶作总览；其后为投用前三步与中后期四步
 PROGRESS_STAGES = [
+    {"key": "basic_info", "label": "项目基本信息", "match_types": ["post_construction"], "e2_phase": "basic"},
     {"key": "acceptance", "label": "受理信息", "match_types": ["acceptance"]},
     {"key": "proposed_approval", "label": "拟审批公示", "match_types": ["proposed_approval"]},
     {"key": "approval_decision", "label": "审批决定公告", "match_types": ["approval_decision"]},
-    {"key": "pre_publicity", "label": "报批前公示", "match_types": ["post_construction"], "e2_phase": "pre"},
-    {"key": "basic_info", "label": "项目基本信息", "match_types": ["post_construction"], "e2_phase": "basic"},
     {"key": "construction", "label": "建设期", "match_types": ["post_construction"], "e2_phase": "construction"},
     {"key": "debug", "label": "竣工及调试期", "match_types": ["post_construction"], "e2_phase": "debug"},
     {"key": "acceptance_phase", "label": "竣工环保验收", "match_types": ["post_construction"], "e2_phase": "acceptance"},
 ]
 
+LINK_STAGE_KEYS = frozenset({"acceptance", "proposed_approval", "approval_decision"})
+BASIC_INFO_FIELD_LABELS = frozenset(
+    {"项目名称", "建设单位", "建设地点", "所属区域", "环评批文文号", "环评批文日期", "计划开工日期"}
+)
+
+# e2 详情页「报批前公示」附件归并到 link 对应阶段（仅 e2 有数据时兜底）
+E2_PRE_FILES_BY_LINK_STAGE: dict[str, set[str]] = {
+    "acceptance": {"pre_approval_entrust"},
+    "proposed_approval": {"pre_approval_notice"},
+}
+
 LEGACY_ATTACHMENT_PATTERNS: dict[str, list[tuple[str, str]]] = {
-    "pre": [(r"拟报批|公众参与|报批前", "pre_approval_notice")],
     "construction": [(r"施工期", "construction_measures")],
     "debug": [(r"调试|非重大调整", "debug_measures")],
     "acceptance": [(r"验收监测|验收意见|其他需要说明", "acceptance_report")],
@@ -108,6 +117,50 @@ def _files_for_e2_phase(post_files: list[dict[str, Any]], phase: str) -> list[di
     return [file_item for file_item in post_files if _legacy_phase_for_file(phase, file_item)]
 
 
+def _e2_pre_files_for_link_stage(
+    post_files: list[dict[str, Any]], link_stage_key: str
+) -> list[dict[str, Any]]:
+    allowed = E2_PRE_FILES_BY_LINK_STAGE.get(link_stage_key, set())
+    return [_enrich_file(file_item) for file_item in post_files if file_item.get("file_type") in allowed]
+
+
+def _merge_files(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[int | str] = set()
+    for group in groups:
+        for file_item in group:
+            key = file_item.get("id") or file_item.get("file_url") or file_item.get("file_external_id")
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(file_item)
+    return merged
+
+
+def _overview_fields(master: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Build project overview from master + best available link/e2 event."""
+    for disclosure_type in ("approval_decision", "proposed_approval", "acceptance", "post_construction"):
+        event = _pick_event(events, disclosure_type)
+        if event:
+            rows = [
+                row for row in _fields_from_event(event, master) if row["label"] in BASIC_INFO_FIELD_LABELS
+            ]
+            if rows:
+                return rows
+    rows: list[dict[str, str]] = []
+
+    def add(label: str, value: str) -> None:
+        if value:
+            rows.append({"label": label, "value": value})
+
+    add("项目名称", master.get("canonical_name", ""))
+    add("建设单位", master.get("company", ""))
+    add("建设地点", master.get("location", ""))
+    add("所属区域", master.get("district", ""))
+    add("环评批文文号", master.get("approval_number", ""))
+    return rows
+
+
 def build_progress_view(master: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     """Merge link.sthj pre-approval steps with e2-style post-approval tabs."""
     events = sorted(
@@ -132,8 +185,30 @@ def build_progress_view(master: dict[str, Any], events: list[dict[str, Any]]) ->
             "files": [],
         }
 
-        if stage_def["key"] in {"acceptance", "proposed_approval", "approval_decision"}:
+        if stage_def["key"] == "basic_info":
+            stage["fields"] = _overview_fields(master, events)
+            if post_event:
+                stage["source"] = post_event.get("source", "")
+                stage["event_id"] = post_event.get("id")
+                stage["source_url"] = post_event.get("source_url", "")
+                stage["date"] = post_summary.get("approval_date") or _stage_date(post_event)
+                stage["status"] = "completed" if post_summary.get("approval_number") or stage["fields"] else "partial"
+            elif stage["fields"]:
+                stage["status"] = "completed"
+                for link_type in ("approval_decision", "proposed_approval", "acceptance"):
+                    link_event = _pick_event(events, link_type)
+                    if link_event:
+                        stage["source"] = link_event.get("source", "")
+                        stage["event_id"] = link_event.get("id")
+                        stage["source_url"] = link_event.get("source_url", "")
+                        stage["date"] = _stage_date(link_event)
+                        break
+        elif stage_def["key"] in LINK_STAGE_KEYS:
             event = _pick_event(events, stage_def["key"])
+            link_files = [_enrich_file(file_item) for file_item in (event or {}).get("files", [])]
+            e2_pre_files = _e2_pre_files_for_link_stage(post_files, stage_def["key"]) if post_event else []
+            stage["files"] = _merge_files(link_files, e2_pre_files)
+
             if event:
                 stage["status"] = "completed"
                 stage["date"] = _stage_date(event)
@@ -141,28 +216,23 @@ def build_progress_view(master: dict[str, Any], events: list[dict[str, Any]]) ->
                 stage["event_id"] = event.get("id")
                 stage["source_url"] = event.get("source_url", "")
                 stage["fields"] = _fields_from_event(event, master)
-                stage["files"] = [_enrich_file(file_item) for file_item in event.get("files", [])]
+            elif e2_pre_files or (
+                stage_def["key"] == "proposed_approval" and post_summary.get("pre_pub_period")
+            ):
+                stage["status"] = "partial"
+                stage["source"] = post_event.get("source", "") if post_event else ""
+                stage["event_id"] = post_event.get("id") if post_event else None
+                stage["source_url"] = post_event.get("source_url", "") if post_event else ""
+                stage["date"] = post_summary.get("pre_pub_period") or _stage_date(post_event)
+                if post_event:
+                    stage["fields"] = _fields_from_event(post_event, master)
         elif post_event:
             phase = stage_def.get("e2_phase")
             stage["source"] = post_event.get("source", "")
             stage["event_id"] = post_event.get("id")
             stage["source_url"] = post_event.get("source_url", "")
 
-            if phase == "pre":
-                stage["files"] = _files_for_e2_phase(post_files, "pre")
-                stage["status"] = "completed" if stage["files"] or post_summary.get("pre_pub_period") or post_summary.get("st_eia_id") else "partial"
-                stage["date"] = post_summary.get("pre_pub_period") or _stage_date(post_event)
-                stage["fields"] = _fields_from_event(post_event, master)
-            elif phase == "basic":
-                stage["status"] = "completed" if post_summary.get("approval_number") else "partial"
-                stage["date"] = post_summary.get("approval_date") or _stage_date(post_event)
-                stage["fields"] = [
-                    row
-                    for row in _fields_from_event(post_event, master)
-                    if row["label"]
-                    in {"项目名称", "建设单位", "建设地点", "所属区域", "环评批文文号", "环评批文日期", "计划开工日期"}
-                ]
-            elif phase == "construction":
+            if phase == "construction":
                 stage["files"] = _files_for_e2_phase(post_files, "construction")
                 stage["status"] = "completed" if post_summary.get("actual_start_date") or stage["files"] else "partial"
                 stage["date"] = post_summary.get("actual_start_date") or post_summary.get("planned_start_date") or ""
@@ -196,6 +266,7 @@ def build_progress_view(master: dict[str, Any], events: list[dict[str, Any]]) ->
 
         stages.append(stage)
 
+    pre_approval_keys = LINK_STAGE_KEYS
     completed = sum(1 for stage in stages if stage["status"] in {"completed", "partial"})
     return {
         "master": master,
@@ -203,7 +274,9 @@ def build_progress_view(master: dict[str, Any], events: list[dict[str, Any]]) ->
         "summary": {
             "total_stages": len(stages),
             "completed_stages": completed,
-            "has_pre_approval": any(stage["status"] != "empty" for stage in stages[:3]),
+            "has_pre_approval": any(
+                stage["status"] != "empty" for stage in stages if stage["key"] in pre_approval_keys
+            ),
             "has_post_approval": post_event is not None,
         },
     }
