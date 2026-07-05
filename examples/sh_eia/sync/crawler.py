@@ -50,9 +50,11 @@ class SyncService:
         }
 
         try:
-            force_refresh = False
+            force_refresh = bool(force)
             sync_sources = list(selected_sources)
-            if max_pages is None and not skip_completeness_check and not force:
+            if force:
+                stats["force_refresh"] = True
+            elif max_pages is None and not skip_completeness_check:
                 self.store.update_sync_progress(job_id, "正在检查本地数据是否完整…", stats)
                 audit = self.completeness_checker.audit(sources=selected_sources, disclosure_types=types)
                 stats["completeness_audit"] = audit

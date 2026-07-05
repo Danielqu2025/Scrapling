@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 import threading
 import zipfile
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
@@ -24,6 +26,8 @@ from sources.e2_qygk.download import refresh_captcha, start_captcha_session, sub
 from sources.types import DISCLOSURE_TYPES, SOURCE_E2_QYGK, SOURCE_LINK_STHJ
 from sync.checker import UpdateChecker
 from sync.crawler import SyncService
+
+logger = logging.getLogger(__name__)
 
 STATIC_DIR = APP_DIR / "static"
 DOWNLOAD_DIR = DATA_DIR / "downloads"
@@ -161,6 +165,17 @@ def _safe_filename(name: str) -> str:
     return cleaned or "download.bin"
 
 
+def _content_disposition(filename: str, fallback: str = "download.bin") -> str:
+    safe = _safe_filename(filename) or fallback
+    if safe.isascii():
+        return f'attachment; filename="{safe}"'
+    ascii_name = re.sub(r"[^\x20-\x7E]", "_", safe).strip("._") or fallback
+    if "." not in ascii_name and "." in fallback:
+        ascii_name = fallback
+    encoded = quote(safe, safe="")
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded}'
+
+
 def _run_sync_job(
     sources: list[str],
     disclosure_types: list[str],
@@ -292,9 +307,38 @@ def api_search(
     }
 
 
+def _parse_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _serialize_sync_job(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    item = dict(row)
+    stats: dict[str, Any] = {}
+    raw_stats = item.pop("stats_json", None)
+    if raw_stats:
+        try:
+            stats = json.loads(raw_stats) if isinstance(raw_stats, str) else dict(raw_stats)
+        except (json.JSONDecodeError, TypeError):
+            stats = {}
+    item["stats"] = stats
+    started = _parse_utc_timestamp(item.get("started_at"))
+    finished = _parse_utc_timestamp(item.get("finished_at"))
+    if started:
+        end = finished or datetime.now(timezone.utc)
+        item["elapsed_seconds"] = max(0, int((end - started).total_seconds()))
+    return item
+
+
 @app.get("/api/sync/status")
 def api_sync_status() -> dict[str, Any]:
-    latest = store.latest_sync_job()
+    latest = _serialize_sync_job(store.latest_sync_job())
     return {"running": sync_running, "latest": latest}
 
 
@@ -365,6 +409,13 @@ def api_sync(request: SyncRequest, background_tasks: BackgroundTasks) -> dict[st
 
     max_pages = None if request.full_sync else request.max_pages
     mode_label = "全量同步" if request.full_sync else f"每类 {max_pages} 页"
+    source_labels: list[str] = []
+    if SOURCE_LINK_STHJ in request.sources:
+        source_labels.append("link 投用前")
+    if SOURCE_E2_QYGK in request.sources:
+        source_labels.append("e2 投用后")
+    scope = "、".join(source_labels) if source_labels else "全部来源"
+    force_hint = "，强制重下" if request.force else ""
     background_tasks.add_task(
         _run_sync_job,
         request.sources,
@@ -380,10 +431,12 @@ def api_sync(request: SyncRequest, background_tasks: BackgroundTasks) -> dict[st
         check_hint = "（将先检查本地数据完整性，已完整则跳过下载）"
     return {
         "status": "accepted",
-        "message": f"同步任务已开始（{mode_label}）{check_hint}，可在同步状态中查看进度。",
+        "message": f"同步任务已开始（{mode_label}：{scope}{force_hint}）{check_hint}，可在下方状态面板查看进度。",
         "full_sync": request.full_sync,
         "max_pages": max_pages,
         "disclosure_types": request.disclosure_types,
+        "sources": request.sources,
+        "force": request.force,
     }
 
 
@@ -417,7 +470,11 @@ def api_download_e2_captcha(request: E2CaptchaRequest) -> dict[str, Any]:
     if not external_id or not event_external_id:
         raise HTTPException(status_code=400, detail="缺少文件标识，请重新同步该项目。")
     try:
-        payload = start_captcha_session(external_id, event_external_id)
+        payload = start_captcha_session(
+            external_id,
+            event_external_id,
+            detail_url=file_item.get("event_source_url"),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {
@@ -445,12 +502,16 @@ def api_download_e2_file(request: E2CaptchaSubmitRequest) -> StreamingResponse:
         body, content_type = submit_captcha_download(request.session_id, request.captcha)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("E2 captcha download failed")
+        raise HTTPException(status_code=502, detail=f"下载失败：{exc}") from exc
 
     filename = _safe_filename(file_item.get("file_name") or f"e2_{request.file_id}.pdf")
+    fallback = f"e2_{request.file_id}.pdf"
     return StreamingResponse(
         BytesIO(body),
         media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename, fallback=fallback)},
     )
 
 

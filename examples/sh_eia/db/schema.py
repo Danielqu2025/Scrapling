@@ -1,6 +1,6 @@
-"""Schema version 2: projects_master + disclosure_events."""
+"""Schema version 3: projects_master + disclosure_events + group_key."""
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_V2_SQL = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS projects_master (
     location TEXT DEFAULT '',
     district TEXT DEFAULT '',
     st_eia_id TEXT DEFAULT '',
+    group_key TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -23,6 +24,10 @@ CREATE TABLE IF NOT EXISTS projects_master (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_master_approval
     ON projects_master(approval_number)
     WHERE approval_number != '';
+
+CREATE INDEX IF NOT EXISTS idx_master_group_key
+    ON projects_master(group_key)
+    WHERE group_key != '';
 
 CREATE TABLE IF NOT EXISTS disclosure_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +80,17 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
     message TEXT DEFAULT '',
     stats_json TEXT DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS e2_captcha_sessions (
+    session_id TEXT PRIMARY KEY,
+    file_external_id TEXT NOT NULL,
+    event_external_id TEXT NOT NULL,
+    referer TEXT NOT NULL,
+    cookies_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_e2_captcha_created ON e2_captcha_sessions(created_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS masters_fts USING fts5(
     canonical_name,

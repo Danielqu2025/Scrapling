@@ -72,6 +72,56 @@ def resolve_download_url(file_url: str, file_name: str = "") -> str:
     return file_url
 
 
+def file_dedup_key(file_item: dict[str, str]) -> str:
+    external = (file_item.get("file_external_id") or "").strip()
+    if external:
+        return f"ext:{external}"
+    name = (file_item.get("file_name") or "").strip()
+    file_type = (file_item.get("file_type") or "").strip()
+    if name:
+        return f"{file_type}:{name}"
+    file_url = resolve_download_url(
+        (file_item.get("file_url") or "").strip(),
+        name,
+    )
+    if file_url:
+        return f"url:{file_url}"
+    return f"id:{file_item.get('id', '')}"
+
+
+def _prefer_file_record(left: dict[str, str], right: dict[str, str]) -> dict[str, str]:
+    left_url = resolve_download_url(left.get("file_url", ""), left.get("file_name", ""))
+    right_url = resolve_download_url(right.get("file_url", ""), right.get("file_name", ""))
+    left_gateway = "hpgs_pdf_login.jsp" in (left.get("file_url") or "")
+    right_gateway = "hpgs_pdf_login.jsp" in (right.get("file_url") or "")
+    if left_gateway and not right_gateway:
+        return right
+    if right_gateway and not left_gateway:
+        return left
+    if left_url != right_url and "exchange_file" in right_url:
+        return right
+    if left_url != right_url and "exchange_file" in left_url:
+        return left
+    return left if (left.get("id") or 0) >= (right.get("id") or 0) else right
+
+
+def dedupe_files(files: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Collapse duplicate link/e2 file rows that differ only by gateway vs direct URL."""
+    merged: list[dict[str, str]] = []
+    index_by_key: dict[str, int] = {}
+    for file_item in files:
+        item = dict(file_item)
+        item["file_url"] = resolve_download_url(item.get("file_url", ""), item.get("file_name", ""))
+        key = file_dedup_key(item)
+        if key in index_by_key:
+            idx = index_by_key[key]
+            merged[idx] = _prefer_file_record(merged[idx], item)
+            continue
+        index_by_key[key] = len(merged)
+        merged.append(item)
+    return merged
+
+
 def normalize_response_body(body) -> bytes:
     if isinstance(body, bytes):
         return body
@@ -133,7 +183,11 @@ def async_paginate_action(page_no: int) -> Callable:
 
 
 def _cell_text(cell) -> str:
-    return " ".join((cell.css("::text").getall() or [])).strip()
+    text = " ".join((cell.css("::text").getall() or [])).strip()
+    title = (cell.attrib.get("title") or "").strip()
+    if title and len(title) > len(text):
+        return title
+    return text or title
 
 
 def _extract_openpdf_files(cell, file_type: str) -> list[dict[str, str]]:

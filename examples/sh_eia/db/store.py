@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import time
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -13,8 +14,19 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from _paths import DB_PATH, MANIFEST_PATH
+from _common import dedupe_files, resolve_download_url
 from db.migrate import migrate_if_needed
-from db.resolver import MasterResolver, episode_group_key_from_event, episode_key_from_event, event_matches_episode, get_schema_version, pick_event_date
+from db.resolver import (
+    MasterResolver,
+    episode_group_key_from_event,
+    episode_key_from_event,
+    event_matches_episode,
+    get_schema_version,
+    names_compatible,
+    pick_event_date,
+    project_group_key,
+    search_card_cluster_key,
+)
 from db.schema import FTS_REBUILD_SQL, SCHEMA_V2_SQL, SCHEMA_VERSION
 from db.timeline_view import build_progress_view
 from sources.types import DISCLOSURE_TYPES, FILE_TYPE_LABELS, SORT_BY_OPTIONS, SORT_ORDER_OPTIONS, SOURCE_E2_QYGK, SOURCES, TYPE_SORT_ORDER
@@ -44,8 +56,9 @@ class EIAStore:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         try:
             yield conn
             conn.commit()
@@ -60,16 +73,131 @@ class EIAStore:
             elif version == 1:
                 migrate_if_needed(conn, utc_now())
             else:
+                from db.migrate import backfill_group_keys, ensure_group_key_column
+
+                ensure_group_key_column(conn)
                 conn.executescript(SCHEMA_V2_SQL)
                 columns = [row[1] for row in conn.execute("PRAGMA table_info(files)").fetchall()]
                 if columns and "event_id" not in columns:
                     from db.migrate import ensure_v2_files_table
 
                     ensure_v2_files_table(conn)
+            from db.migrate import backfill_group_keys, ensure_group_key_column
+
+            ensure_group_key_column(conn)
+            backfill_group_keys(conn)
+            self._ensure_e2_captcha_sessions(conn)
+            self._repair_misclassified_e2_files(conn)
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(
                 "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
+
+    @staticmethod
+    def _ensure_e2_captcha_sessions(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS e2_captcha_sessions (
+                session_id TEXT PRIMARY KEY,
+                file_external_id TEXT NOT NULL,
+                event_external_id TEXT NOT NULL,
+                referer TEXT NOT NULL,
+                cookies_json TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_e2_captcha_created ON e2_captcha_sessions(created_at)"
+        )
+
+    @staticmethod
+    def _repair_misclassified_e2_files(conn: sqlite3.Connection) -> None:
+        misclassified = (
+            "file_type = 'e2_debug'"
+            " AND (file_name LIKE '%非重大%' OR file_name LIKE '%变动%' OR file_name LIKE '%调整%')"
+        )
+        conn.execute(
+            f"""
+            DELETE FROM files
+            WHERE {misclassified}
+              AND EXISTS (
+                SELECT 1 FROM files existing
+                WHERE existing.event_id = files.event_id
+                  AND existing.file_type = 'adjustment_report'
+                  AND existing.file_url = files.file_url
+              )
+            """
+        )
+        conn.execute(
+            f"""
+            UPDATE files SET file_type = 'adjustment_report'
+            WHERE {misclassified}
+            """
+        )
+
+    def purge_expired_e2_captcha_sessions(self, max_age_seconds: float) -> int:
+        cutoff = time.time() - max_age_seconds
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM e2_captcha_sessions WHERE created_at < ?",
+                (cutoff,),
+            )
+            return cursor.rowcount
+
+    def save_e2_captcha_session(
+        self,
+        session_id: str,
+        *,
+        file_external_id: str,
+        event_external_id: str,
+        referer: str,
+        cookies_json: str,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO e2_captcha_sessions(
+                    session_id, file_external_id, event_external_id, referer, cookies_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    cookies_json = excluded.cookies_json,
+                    created_at = excluded.created_at
+                """,
+                (
+                    session_id,
+                    file_external_id,
+                    event_external_id,
+                    referer,
+                    cookies_json,
+                    time.time(),
+                ),
+            )
+
+    def get_e2_captcha_session(self, session_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM e2_captcha_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_e2_captcha_session(self, session_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM e2_captcha_sessions WHERE session_id = ?", (session_id,))
+
+    def update_e2_captcha_session_cookies(self, session_id: str, cookies_json: str) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE e2_captcha_sessions
+                SET cookies_json = ?, created_at = ?
+                WHERE session_id = ?
+                """,
+                (cookies_json, time.time(), session_id),
+            )
+            return cursor.rowcount > 0
 
     def start_sync_job(self, trigger_mode: str) -> int:
         with self.connect() as conn:
@@ -168,6 +296,16 @@ class EIAStore:
                 for file_info in record.get("files", []):
                     download_status = file_info.get("download_status", "direct")
                     file_external_id = file_info.get("file_external_id", "")
+                    file_name = file_info.get("file_name", "")
+                    file_url = resolve_download_url(file_info.get("file_url", ""), file_name)
+                    if file_name:
+                        conn.execute(
+                            """
+                            DELETE FROM files
+                            WHERE event_id = ? AND file_type = ? AND file_name = ? AND file_url != ?
+                            """,
+                            (event_id, file_info["file_type"], file_name, file_url),
+                        )
                     if file_external_id and file_info.get("file_type") != "attachment":
                         conn.execute(
                             """
@@ -189,8 +327,8 @@ class EIAStore:
                         (
                             event_id,
                             file_info["file_type"],
-                            file_info.get("file_name", ""),
-                            file_info.get("file_url", ""),
+                            file_name,
+                            file_url,
                             file_info.get("file_external_id", ""),
                             download_status,
                         ),
@@ -326,18 +464,77 @@ class EIAStore:
                     cache[row["external_id"]] = summary
             return cache
 
+    @staticmethod
+    def _group_key_for_master(master: sqlite3.Row) -> str:
+        key = ""
+        try:
+            key = (master["group_key"] or "").strip()
+        except (IndexError, KeyError):
+            pass
+        if not key:
+            key = project_group_key(master["canonical_name"] or "")
+        return key
+
+    def _related_master_ids(self, conn: sqlite3.Connection, master_id: int) -> list[int]:
+        master = conn.execute("SELECT * FROM projects_master WHERE id = ?", (master_id,)).fetchone()
+        if not master:
+            return []
+        group_key = self._group_key_for_master(master)
+        name = master["canonical_name"] or ""
+        if not group_key:
+            return [master_id]
+        prefix_len = min(len(group_key), 18)
+        prefix = group_key[:prefix_len]
+        rows = conn.execute(
+            """
+            SELECT id, canonical_name FROM projects_master
+            WHERE group_key = ?
+               OR (? != '' AND group_key LIKE ?)
+            """,
+            (group_key, prefix, f"{prefix}%"),
+        ).fetchall()
+        ids: list[int] = []
+        for row in rows:
+            if names_compatible(name, row["canonical_name"] or ""):
+                ids.append(int(row["id"]))
+        return ids or [master_id]
+
+    @staticmethod
+    def _pick_display_master(conn: sqlite3.Connection, master_ids: list[int]) -> sqlite3.Row | None:
+        if not master_ids:
+            return None
+        placeholders = ",".join("?" for _ in master_ids)
+        return conn.execute(
+            f"""
+            SELECT m.* FROM projects_master m
+            WHERE m.id IN ({placeholders})
+            ORDER BY
+                CASE WHEN COALESCE(m.approval_number, '') != '' THEN 0 ELSE 1 END,
+                (SELECT CASE WHEN EXISTS(
+                    SELECT 1 FROM disclosure_events e
+                    WHERE e.master_id = m.id AND e.disclosure_type = 'approval_decision'
+                ) THEN 0 ELSE 1 END),
+                length(COALESCE(m.canonical_name, '')) DESC,
+                m.id ASC
+            LIMIT 1
+            """,
+            master_ids,
+        ).fetchone()
+
     def get_timeline(self, master_id: int, episode_key: str | None = None) -> dict[str, Any] | None:
         with self.connect() as conn:
-            master = conn.execute("SELECT * FROM projects_master WHERE id = ?", (master_id,)).fetchone()
-            if not master:
+            master_ids = self._related_master_ids(conn, master_id)
+            display_master = self._pick_display_master(conn, master_ids)
+            if not display_master:
                 return None
+            placeholders = ",".join("?" for _ in master_ids)
             events = conn.execute(
-                """
+                f"""
                 SELECT * FROM disclosure_events
-                WHERE master_id = ?
+                WHERE master_id IN ({placeholders})
                 ORDER BY COALESCE(NULLIF(event_date, ''), synced_at) ASC, id ASC
                 """,
-                (master_id,),
+                master_ids,
             ).fetchall()
             timeline: list[dict[str, Any]] = []
             for event in events:
@@ -350,17 +547,19 @@ class EIAStore:
                     item["summary"] = json.loads(item.get("summary_json") or "{}")
                 except json.JSONDecodeError:
                     item["summary"] = {}
-                item["files"] = [
-                    self._enrich_file(dict(file_row))
-                    for file_row in conn.execute(
-                        "SELECT * FROM files WHERE event_id = ? ORDER BY file_type",
-                        (item["id"],),
-                    ).fetchall()
-                ]
+                item["files"] = dedupe_files(
+                    [
+                        self._enrich_file(dict(file_row))
+                        for file_row in conn.execute(
+                            "SELECT * FROM files WHERE event_id = ? ORDER BY file_type",
+                            (item["id"],),
+                        ).fetchall()
+                    ]
+                )
                 timeline.append(item)
             if episode_key:
                 timeline = [item for item in timeline if event_matches_episode(item, episode_key)]
-            return {"master": dict(master), "events": timeline}
+            return {"master": dict(display_master), "events": timeline}
 
     def get_progress(self, master_id: int, episode_key: str | None = None) -> dict[str, Any] | None:
         timeline = self.get_timeline(master_id, episode_key=episode_key)
@@ -416,13 +615,18 @@ class EIAStore:
 
         with self.connect() as conn:
             if query:
-                master_ids = self._search_master_ids(conn, query, types, limit * 3, filter_sql, filter_params)
-                if not master_ids:
-                    rows = self._search_events_like(
-                        conn, query, types, limit, sort_by, sort_order, filter_sql, filter_params
+                master_ids = list(
+                    dict.fromkeys(
+                        self._search_master_ids(
+                            conn, query, types, limit * 3, filter_sql, filter_params
+                        )
+                        + self._search_master_ids_like(
+                            conn, query, types, limit * 3, filter_sql, filter_params
+                        )
                     )
-                else:
-                    rows = self._fetch_events_for_masters(
+                )
+                rows = (
+                    self._fetch_events_for_masters(
                         conn,
                         master_ids,
                         types,
@@ -432,12 +636,20 @@ class EIAStore:
                         filter_sql,
                         filter_params,
                     )
+                    if master_ids
+                    else []
+                )
+                if not rows:
+                    rows = self._search_events_like(
+                        conn, query, types, limit, sort_by, sort_order, filter_sql, filter_params
+                    )
             else:
                 order_clause = self._build_order_clause(sort_by, sort_order, table_alias="e.", master_alias="m.")
                 rows = conn.execute(
                     f"""
                     SELECT e.*, m.canonical_name AS project_name, m.company, m.approval_number,
-                           m.location, m.district, m.st_eia_id, e.id AS event_id, m.id AS master_id
+                           m.location, m.district, m.st_eia_id, m.group_key AS master_group_key,
+                           e.id AS event_id, m.id AS master_id
                     FROM disclosure_events e
                     JOIN projects_master m ON m.id = e.master_id
                     WHERE e.disclosure_type IN ({type_placeholders})
@@ -787,6 +999,34 @@ class EIAStore:
         ).fetchall()
         return [int(row[0]) for row in rows]
 
+    def _search_master_ids_like(
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        types: list[str],
+        limit: int,
+        filter_sql: str,
+        filter_params: list[Any],
+    ) -> list[int]:
+        placeholders = ",".join("?" for _ in types)
+        pattern = f"%{query}%"
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT m.id
+            FROM projects_master m
+            JOIN disclosure_events e ON e.master_id = m.id
+            WHERE e.disclosure_type IN ({placeholders})
+              {filter_sql}
+              AND (
+                m.canonical_name LIKE ? OR m.company LIKE ? OR m.location LIKE ?
+                OR m.approval_number LIKE ? OR m.district LIKE ?
+              )
+            LIMIT ?
+            """,
+            (*types, *filter_params, pattern, pattern, pattern, pattern, pattern, limit),
+        ).fetchall()
+        return [int(row[0]) for row in rows]
+
     def _fetch_events_for_masters(
         self,
         conn: sqlite3.Connection,
@@ -806,7 +1046,8 @@ class EIAStore:
         return conn.execute(
             f"""
             SELECT e.*, m.canonical_name AS project_name, m.company, m.approval_number,
-                   m.location, m.district, m.st_eia_id, e.id AS event_id, m.id AS master_id
+                   m.location, m.district, m.st_eia_id, m.group_key AS master_group_key,
+                   e.id AS event_id, m.id AS master_id
             FROM disclosure_events e
             JOIN projects_master m ON m.id = e.master_id
             WHERE m.id IN ({id_placeholders})
@@ -835,7 +1076,8 @@ class EIAStore:
         return conn.execute(
             f"""
             SELECT e.*, m.canonical_name AS project_name, m.company, m.approval_number,
-                   m.location, m.district, m.st_eia_id, e.id AS event_id, m.id AS master_id
+                   m.location, m.district, m.st_eia_id, m.group_key AS master_group_key,
+                   e.id AS event_id, m.id AS master_id
             FROM disclosure_events e
             JOIN projects_master m ON m.id = e.master_id
             WHERE e.disclosure_type IN ({placeholders})
@@ -873,6 +1115,13 @@ class EIAStore:
             if len(parts) >= 3:
                 event_approval = parts[2].strip()
         item["event_approval_number"] = event_approval or item.get("approval_number", "")
+        item["display_name"] = (item.get("title") or "").strip() or item.get("project_name", "")
+        item["project_group_key"] = project_group_key(item["display_name"])
+        item["search_cluster_key"] = search_card_cluster_key(
+            item["display_name"],
+            master_id=int(item.get("master_id") or 0),
+            master_group_key=(item.get("master_group_key") or ""),
+        )
         episode_source = {**item, "approval_number": event_approval}
         item["episode_key"] = episode_group_key_from_event(episode_source)
         item["episode_label"] = event_approval or item["episode_key"]

@@ -6,12 +6,16 @@ import re
 from html import unescape
 from typing import Any
 
-from sources.e2_qygk.client import DETAIL_URL_TEMPLATE
+from sources.e2_qygk.client import detail_url_for
 from sources.types import SOURCE_E2_QYGK
 
 OPEN_INFO_PATTERN = re.compile(
     r"openInfo\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"](\d+)['\"]\s*\)",
     re.IGNORECASE,
+)
+LIST_ANCHOR_PATTERN = re.compile(
+    r'<a[^>]*openInfo\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"](\d+)[\'"]\s*\)[^>]*>(.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
 )
 UUID_LIKE = re.compile(r"^[A-F0-9]{32}$", re.IGNORECASE)
 TOTAL_PAGES_PATTERN = re.compile(r"共\s*(\d+)\s*页")
@@ -33,6 +37,10 @@ FILE_ROW_BLOCK_PATTERN = re.compile(
     r'<div class="name[^"]*"[^>]*>([^<]+)</div>\s*'
     r'<div class="value[^"]*"[^>]*>.*?'
     r'(?:filedown\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)|filedown2\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\))',
+    re.IGNORECASE | re.DOTALL,
+)
+FIELD_PAIR_PATTERN = re.compile(
+    r'<div class="name[^"]*"[^>]*>([^<]+)</div>\s*<div class="value[^"]*"[^>]*>(.*?)</div>',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -79,19 +87,21 @@ def _extract_field(block: str, label: str) -> str:
 
 
 def parse_list_records(html: str, source_url: str = "") -> list[dict[str, Any]]:
+    """Parse list rows; each openInfo anchor wraps the matching project card."""
     records: list[dict[str, Any]] = []
-    for match in OPEN_INFO_PATTERN.finditer(html):
+    for match in LIST_ANCHOR_PATTERN.finditer(html):
         external_id = match.group(1)
-        start = max(0, match.start() - 1200)
-        end = min(len(html), match.end() + 1200)
-        block = html[start:end]
+        nm_type = match.group(2)
+        block = match.group(3)
 
         project_name = _extract_field(block, "项目名称") or _first_class_text(block, "name")
         if not project_name or project_name == external_id or UUID_LIKE.match(project_name):
             project_name = _guess_project_name(block, external_id)
         location = _extract_field(block, "建设地点") or _first_class_text(block, "js")
-        company = _extract_field(block, "建设单位") or _extract_js_pair(block, 1)
+        company = _extract_field(block, "建设单位")
         district = _extract_field(block, "所属区域") or _first_class_text(block, "i-qy")
+        if company and district and company == district:
+            company = ""
         lifecycle_stage = _first_class_text(block, "i-type")
         pub_date = _first_class_text(block, "id-item")
 
@@ -107,9 +117,9 @@ def parse_list_records(html: str, source_url: str = "") -> list[dict[str, Any]]:
                 "lifecycle_stage": lifecycle_stage,
                 "event_date": pub_date,
                 "title": project_name or external_id,
-                "source_url": DETAIL_URL_TEMPLATE.format(external_id=external_id),
+                "source_url": detail_url_for(external_id, nm_type),
                 "summary_json": {
-                    "nm_type": match.group(2),
+                    "nm_type": nm_type,
                     "list_source_url": source_url,
                 },
                 "files": [],
@@ -172,7 +182,7 @@ def _infer_file_type(stage_key: str, row_label: str, file_name: str) -> str:
         return "construction_measures"
     if "施工期环境监" in combined or "施工期监测" in combined:
         return "construction_monitoring"
-    if "非重大调整" in combined:
+    if "非重大变" in combined or "非重大调整" in combined or "非重大变动" in combined:
         return "adjustment_report"
     if stage_key == "debug" and ("环保措施" in combined or "调试" in file_name):
         return "debug_measures"
@@ -281,6 +291,28 @@ def _extract_files(html: str) -> list[dict[str, str]]:
     return files
 
 
+def _extract_field_pairs(block: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for match in FIELD_PAIR_PATTERN.finditer(block):
+        label = _clean(match.group(1))
+        value = _clean(match.group(2))
+        if not label or not value or value in {"无", "-", "--"}:
+            continue
+        if label.endswith("pdf") or "下载" in label:
+            continue
+        fields[label] = value
+    return fields
+
+
+def _extract_stage_fields(html: str) -> dict[str, dict[str, str]]:
+    stage_fields: dict[str, dict[str, str]] = {}
+    for stage_key, block in _split_stage_blocks(html):
+        fields = _extract_field_pairs(block)
+        if fields:
+            stage_fields[stage_key] = fields
+    return stage_fields
+
+
 def _stage_block(html: str, stage_key: str) -> str:
     for key, block in _split_stage_blocks(html):
         if key == stage_key:
@@ -290,6 +322,13 @@ def _stage_block(html: str, stage_key: str) -> str:
 
 def parse_detail_page(html: str, list_record: dict[str, Any]) -> dict[str, Any]:
     record = dict(list_record)
+    summary = dict(record.get("summary_json") or {})
+    nm_type = summary.get("nm_type")
+    detail_name = _extract_field(html, "项目名称")
+    if detail_name and detail_name != record.get("external_id"):
+        record["project_name"] = detail_name
+        record["title"] = detail_name
+
     approval_number = ""
     match = APPROVAL_NUMBER_PATTERN.search(html)
     if match:
@@ -316,33 +355,61 @@ def parse_detail_page(html: str, list_record: dict[str, Any]) -> dict[str, Any]:
         if pre_match:
             pre_pub_period = _clean(pre_match.group(1))
 
-    summary = dict(record.get("summary_json") or {})
+    stage_fields = _extract_stage_fields(html)
+    basic_fields = stage_fields.get("basic", {})
+    industry = basic_fields.get("所属行业") or _extract_field(html, "所属行业")
+    design_unit = basic_fields.get("设计单位") or _extract_field(html, "设计单位")
+    project_description = basic_fields.get("项目基本信息") or _extract_field(html, "项目基本信息")
+    contact_name = basic_fields.get("联系人") or _extract_field(html, "联系人")
+    contact_phone = basic_fields.get("联系电话") or _extract_field(html, "联系电话")
+    contact_email = basic_fields.get("联系邮箱") or _extract_field(html, "联系邮箱")
+
+    company = basic_fields.get("建设单位") or record.get("company") or ""
+    location = basic_fields.get("建设地点") or record.get("location") or ""
+    district = basic_fields.get("所属区域") or record.get("district") or ""
+    if company and district and company == district:
+        company = ""
+
     summary.update(
         {
             "approval_number": approval_number,
             "approval_date": approval_date,
-            "planned_start_date": _extract_field(html, "计划开工日期"),
-            "actual_start_date": _extract_field(html, "实际开工日期"),
-            "completion_date": _extract_field(html, "竣工日期"),
-            "debug_start_date": _extract_field(html, "开始调试日期"),
-            "acceptance_pub_start": _extract_field(html, "公示起始日期"),
+            "company": company,
+            "location": location,
+            "district": district,
+            "planned_start_date": basic_fields.get("计划开工日期") or _extract_field(html, "计划开工日期"),
+            "actual_start_date": basic_fields.get("实际开工日期") or _extract_field(html, "实际开工日期"),
+            "completion_date": basic_fields.get("竣工日期") or _extract_field(html, "竣工日期"),
+            "debug_start_date": basic_fields.get("开始调试日期") or _extract_field(html, "开始调试日期"),
+            "acceptance_pub_start": basic_fields.get("公示起始日期") or _extract_field(html, "公示起始日期"),
             "pre_pub_period": pre_pub_period,
             "st_eia_id": st_eia_id,
+            "industry": industry,
+            "design_unit": design_unit,
+            "project_description": project_description,
+            "contact_name": contact_name,
+            "contact_phone": contact_phone,
+            "contact_email": contact_email,
+            "stage_fields": stage_fields,
         }
     )
+
+    if industry:
+        record["lifecycle_stage"] = record.get("lifecycle_stage") or industry
 
     files = _extract_files(html)
     record.update(
         {
             "approval_number": approval_number,
             "approval_date": approval_date,
+            "company": company,
+            "location": location,
+            "district": district,
             "st_eia_id": st_eia_id,
             "event_date": approval_date or record.get("event_date", ""),
             "summary_json": summary,
             "files": files,
-            "source_url": record.get("source_url") or DETAIL_URL_TEMPLATE.format(
-                external_id=record["external_id"]
-            ),
+            "source_url": detail_url_for(record["external_id"], nm_type),
         }
     )
     return record

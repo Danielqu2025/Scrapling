@@ -169,3 +169,46 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection, now: str) -> None:
         "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
         (str(SCHEMA_VERSION),),
     )
+
+
+def _master_columns(conn: sqlite3.Connection) -> set[str]:
+    return {row[1] for row in conn.execute("PRAGMA table_info(projects_master)").fetchall()}
+
+
+def ensure_group_key_column(conn: sqlite3.Connection) -> bool:
+    """Add projects_master.group_key if missing. Returns True when column was added."""
+    if "group_key" in _master_columns(conn):
+        return False
+    conn.execute("ALTER TABLE projects_master ADD COLUMN group_key TEXT DEFAULT ''")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_master_group_key
+        ON projects_master(group_key)
+        WHERE group_key != ''
+        """
+    )
+    return True
+
+
+def backfill_group_keys(conn: sqlite3.Connection, batch_size: int = 5000) -> int:
+    from db.resolver import project_group_key
+
+    updated = 0
+    while True:
+        rows = conn.execute(
+            """
+            SELECT id, canonical_name FROM projects_master
+            WHERE COALESCE(group_key, '') = ''
+            LIMIT ?
+            """,
+            (batch_size,),
+        ).fetchall()
+        if not rows:
+            break
+        for row in rows:
+            conn.execute(
+                "UPDATE projects_master SET group_key = ? WHERE id = ?",
+                (project_group_key(row["canonical_name"] or ""), int(row["id"])),
+            )
+            updated += 1
+    return updated

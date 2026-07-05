@@ -53,6 +53,46 @@
     .stats, .meta { color: var(--muted); font-size: 14px; }
     .message { margin-top: 10px; color: #0369a1; }
     .error { color: #b91c1c; }
+    .sync-status {
+      display: none;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #bae6fd;
+      background: #f0f9ff;
+    }
+    .sync-status.show { display: block; }
+    .sync-status.running { border-color: #7dd3fc; background: #ecfeff; }
+    .sync-status.success { border-color: #86efac; background: #f0fdf4; }
+    .sync-status.failed { border-color: #fca5a5; background: #fef2f2; }
+    .sync-status-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+    .sync-status-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #0ea5e9;
+      color: #fff;
+    }
+    .sync-status.success .sync-status-badge { background: #059669; }
+    .sync-status.failed .sync-status-badge { background: #dc2626; }
+    .sync-status-message { font-size: 15px; color: #0c4a6e; line-height: 1.5; }
+    .sync-status-detail { margin-top: 6px; font-size: 13px; color: #64748b; }
+    .sync-progress-bar {
+      margin-top: 10px;
+      height: 6px;
+      border-radius: 999px;
+      background: #dbeafe;
+      overflow: hidden;
+    }
+    .sync-progress-bar > span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, #0ea5e9, #0284c7);
+      width: 0%;
+      transition: width .4s ease;
+    }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--primary-light); color: #075985; font-size: 12px; margin-right: 8px; }
     .result-card { border-top: 1px solid var(--border); padding: 16px 0; }
     .result-card h3 { margin: 0 0 8px; font-size: 18px; }
@@ -85,7 +125,10 @@
     .stage-panel h3 { margin: 0 0 16px; color: var(--primary); }
     .field-grid { display: grid; gap: 10px; }
     .field-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
-    .field-row .fname { color: var(--muted); }
+    .field-row-long { grid-template-columns: 1fr; }
+    .field-row-long .fname { font-weight: 600; color: #475569; padding-bottom: 4px; }
+    .field-row .fvalue { white-space: pre-wrap; word-break: break-word; }
+    .field-row-long .fvalue { line-height: 1.65; }
     .file-list { margin-top: 18px; }
     .file-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
     .file-item label { display: flex; align-items: center; gap: 8px; flex: 1; }
@@ -115,6 +158,8 @@
         <button id="syncQuickBtn">手动同步（每类 1 页）</button>
         <button id="syncE2Btn" class="secondary">仅同步中后期（1 页）</button>
         <button id="syncFullBtn" class="secondary">全量同步</button>
+        <button id="syncLinkForceBtn" class="secondary">link 全量重下（强制）</button>
+        <button id="syncE2ForceBtn" class="secondary">e2 全量重下（强制）</button>
         <button id="refreshStatusBtn" class="secondary">刷新状态</button>
         <span style="flex:1"></span>
         <button id="exportDbBtn" class="secondary">导出数据库</button>
@@ -126,9 +171,18 @@
       </div>
       <label class="filter-option" style="margin-top:8px;display:block;font-size:13px;color:#475569;">
         <input id="forceFullSync" type="checkbox">
-        强制全量重下（跳过完整性检查，link + e2 全部重新下载）
+        全量同步时强制重下（跳过完整性检查，link + e2 同时重下；仅 e2 或 link 请用上方的专用按钮）
       </label>
       <div id="syncMessage" class="message"></div>
+      <div id="syncStatusPanel" class="sync-status">
+        <div class="sync-status-head">
+          <span id="syncStatusBadge" class="sync-status-badge">同步中</span>
+          <span id="syncStatusElapsed" class="meta"></span>
+        </div>
+        <div id="syncStatusMessage" class="sync-status-message"></div>
+        <div id="syncStatusDetail" class="sync-status-detail"></div>
+        <div id="syncProgressBar" class="sync-progress-bar" hidden><span></span></div>
+      </div>
       <div id="dbMessage" class="message"></div>
     </section>
 
@@ -138,7 +192,7 @@
         <div class="filter-panel-body">
           <div class="filter-group">
             <h3>关键字</h3>
-            <input id="query" type="text" placeholder="项目名称、建设单位、批文号…" style="width:100%">
+            <input id="query" type="text" placeholder="项目名称、建设单位、批文号、项目概况…" style="width:100%">
           </div>
           <div class="filter-group">
             <h3>公示类型</h3>
@@ -234,7 +288,7 @@
         <div id="captchaFileName" class="meta"></div>
         <div class="captcha-box">
           <img id="captchaImg" alt="验证码">
-          <input id="captchaInput" type="text" maxlength="6" placeholder="请输入验证码" autocomplete="off">
+          <input id="captchaInput" type="text" maxlength="6" placeholder="请输入验证码（区分大小写）" autocomplete="off" style="text-transform:uppercase">
         </div>
         <div class="row">
           <button id="captchaRefresh" class="secondary">换一张</button>
@@ -250,6 +304,154 @@
     let progressData = null;
     let activeStageKey = null;
     let captchaState = { fileId: null, sessionId: null };
+    let syncPollTimer = null;
+    let lastSyncRunning = false;
+    let syncPanelActive = false;
+
+    const TYPE_LABELS = {
+      acceptance: "受理信息",
+      proposed_approval: "拟审批公示",
+      approval_decision: "审批决定公告",
+      post_construction: "中后期信息公开",
+    };
+
+    function formatElapsed(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return "";
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      if (mins >= 60) {
+        const hours = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        return `已运行 ${hours} 小时 ${remMins} 分 ${secs} 秒`;
+      }
+      if (mins > 0) return `已运行 ${mins} 分 ${secs} 秒`;
+      return `已运行 ${secs} 秒`;
+    }
+
+    function summarizeSyncStats(stats) {
+      if (!stats) return "";
+      const parts = [];
+      for (const [key, value] of Object.entries(stats.types || {})) {
+        if (!value || typeof value !== "object") continue;
+        const label = TYPE_LABELS[key] || key;
+        const bits = [`${value.pages || 0} 页`, `${value.events || 0} 条`];
+        if (value.files) bits.push(`${value.files} 个文件`);
+        if (value.details) bits.push(`${value.details} 个详情`);
+        parts.push(`${label} ${bits.join(" / ")}`);
+      }
+      return parts.join("；");
+    }
+
+    function syncProgressPercent(stats) {
+      const current = stats?.current;
+      if (!current?.page || !current?.total_pages) return null;
+      const page = Number(current.page);
+      const total = Number(current.total_pages);
+      if (!Number.isFinite(page) || !Number.isFinite(total) || total <= 0) return null;
+      return Math.max(4, Math.min(100, Math.round((page / total) * 100)));
+    }
+
+    const LINK_SYNC_TYPES = ["acceptance", "proposed_approval", "approval_decision"];
+    const E2_SYNC_TYPES = ["post_construction"];
+
+    function setSyncButtonsDisabled(disabled) {
+      [
+        "syncQuickBtn",
+        "syncE2Btn",
+        "syncFullBtn",
+        "syncLinkForceBtn",
+        "syncE2ForceBtn",
+      ].forEach(id => {
+        document.getElementById(id).disabled = disabled;
+      });
+    }
+
+    function renderSyncStatus(data) {
+      const panel = document.getElementById("syncStatusPanel");
+      const badge = document.getElementById("syncStatusBadge");
+      const elapsedEl = document.getElementById("syncStatusElapsed");
+      const messageEl = document.getElementById("syncStatusMessage");
+      const detailEl = document.getElementById("syncStatusDetail");
+      const progressBar = document.getElementById("syncProgressBar");
+      const progressFill = progressBar.querySelector("span");
+      const latest = data.latest;
+      const running = Boolean(data.running);
+
+      if (running) syncPanelActive = true;
+
+      const headline = running
+        ? `${latest?.message || "同步进行中…"}${latest?.elapsed_seconds != null ? `（${formatElapsed(latest.elapsed_seconds)}）` : ""}`
+        : latest
+          ? `${latest.status === "success" ? "完成" : latest.status === "failed" ? "失败" : latest.status} — ${latest.message || ""}`
+          : "暂无同步记录";
+      document.getElementById("syncMessage").textContent = headline;
+      setSyncButtonsDisabled(running);
+
+      if (!syncPanelActive) {
+        panel.classList.remove("show", "running", "success", "failed");
+        return data;
+      }
+
+      if (!running && !latest) {
+        panel.classList.remove("show", "running", "success", "failed");
+        return data;
+      }
+
+      panel.classList.add("show");
+      panel.classList.toggle("running", running);
+      panel.classList.toggle("success", !running && latest?.status === "success");
+      panel.classList.toggle("failed", !running && latest?.status === "failed");
+
+      if (running) {
+        badge.textContent = "同步进行中";
+      } else if (latest?.status === "success") {
+        badge.textContent = "同步完成";
+      } else if (latest?.status === "failed") {
+        badge.textContent = "同步失败";
+      } else {
+        badge.textContent = latest?.status || "同步状态";
+      }
+
+      elapsedEl.textContent = latest?.elapsed_seconds != null ? formatElapsed(latest.elapsed_seconds) : "";
+      messageEl.textContent = latest?.message || (running ? "同步任务已启动，等待进度…" : "");
+      const summary = summarizeSyncStats(latest?.stats);
+      detailEl.textContent = summary;
+
+      const percent = running ? syncProgressPercent(latest?.stats) : null;
+      if (percent != null) {
+        progressBar.hidden = false;
+        progressFill.style.width = `${percent}%`;
+      } else {
+        progressBar.hidden = true;
+        progressFill.style.width = "0%";
+      }
+
+      return data;
+    }
+
+    function stopSyncPolling() {
+      if (syncPollTimer) {
+        clearInterval(syncPollTimer);
+        syncPollTimer = null;
+      }
+    }
+
+    function startSyncPolling() {
+      stopSyncPolling();
+      syncPollTimer = setInterval(async () => {
+        try {
+          const data = renderSyncStatus(await (await fetch("/api/sync/status", { cache: "no-store" })).json());
+          if (!data.running && lastSyncRunning) {
+            stopSyncPolling();
+            await loadStats();
+            await search();
+          }
+          lastSyncRunning = Boolean(data.running);
+        } catch (err) {
+          console.error("sync status poll failed", err);
+        }
+      }, 2000);
+    }
 
     function selectedTypes() {
       return [...document.querySelectorAll(".typeBox:checked")].map(el => el.value);
@@ -318,9 +520,10 @@
     }
 
     async function refreshSyncStatus() {
-      const data = await (await fetch("/api/sync/status")).json();
-      const msg = data.running ? (data.latest?.message || "同步进行中…") : (data.latest ? `${data.latest.status} — ${data.latest.message}` : "暂无同步记录");
-      document.getElementById("syncMessage").textContent = msg;
+      const data = renderSyncStatus(await (await fetch("/api/sync/status", { cache: "no-store" })).json());
+      lastSyncRunning = Boolean(data.running);
+      if (data.running) startSyncPolling();
+      else stopSyncPolling();
       return data;
     }
 
@@ -332,14 +535,17 @@
         if (!current) return true;
         if (next.disclosure_type === "approval_decision") return true;
         if (current.disclosure_type === "approval_decision") return false;
-        const nextLabel = next.episode_label || "";
-        const currentLabel = current.episode_label || "";
-        if (nextLabel.startsWith("round_") && !currentLabel.startsWith("round_")) return false;
-        if (!nextLabel.startsWith("round_") && currentLabel.startsWith("round_")) return true;
+        if (next.disclosure_type === "proposed_approval" && current.disclosure_type !== "proposed_approval") return true;
+        if (current.disclosure_type === "proposed_approval" && next.disclosure_type !== "proposed_approval") return false;
+        const nextName = (next.display_name || "").length;
+        const currentName = (current.display_name || "").length;
+        if (nextName > currentName) return true;
         return false;
       }
       for (const item of data.results || []) {
-        const cardKey = `${item.master_id}:${item.episode_key || item.event_approval_number || ""}`;
+        const cluster = item.search_cluster_key || String(item.master_id);
+        const episode = item.episode_key || item.event_approval_number || "";
+        const cardKey = `${cluster}:${episode}`;
         const current = byCard.get(cardKey);
         if (preferCard(item, current)) byCard.set(cardKey, item);
       }
@@ -357,7 +563,7 @@
         const div = document.createElement("div");
         div.className = "result-card";
         div.innerHTML = `
-          <h3>${item.project_name}</h3>
+          <h3>${item.display_name || item.title || item.project_name}</h3>
           <div class="meta">
             <span class="badge">${item.disclosure_label || ""}</span>
             ${item.episode_label && !String(item.episode_label).startsWith("round_") ? "环评轮次：" + item.episode_label + "；" : (item.episode_key && String(item.episode_key).startsWith("round_") ? "年份：" + item.episode_key.replace("round_", "") + "；" : "")}
@@ -413,12 +619,16 @@
       });
     }
 
+    const LONG_FIELD_LABELS = new Set(["项目概况", "项目基本信息"]);
+
     function renderStagePanel(key) {
       const stage = progressData.stages.find(s => s.key === key);
       const panel = document.getElementById("stagePanel");
       if (!stage) return;
-      const fields = (stage.fields || []).map(f => `
-        <div class="field-row"><div class="fname">${f.label}</div><div>${f.value}</div></div>`).join("");
+      const fields = (stage.fields || []).map(f => {
+        const longField = LONG_FIELD_LABELS.has(f.label);
+        return `<div class="field-row${longField ? " field-row-long" : ""}"><div class="fname">${f.label}</div><div class="fvalue">${f.value}</div></div>`;
+      }).join("");
       const files = (stage.files || []).map(f => `
         <div class="file-item">
           <span>[${f.file_type_label || f.file_type}] ${f.file_name || f.file_url || ""}</span>
@@ -444,29 +654,67 @@
     }
 
     async function openCaptcha(fileId) {
-      captchaState = { fileId, sessionId: null };
+      captchaState = { fileId, sessionId: null, loading: true };
+      document.getElementById("captchaSubmit").disabled = true;
+      document.getElementById("captchaRefresh").disabled = true;
       document.getElementById("captchaMessage").textContent = "正在获取验证码…";
       document.getElementById("captchaInput").value = "";
       document.getElementById("captchaModal").classList.add("show");
-      const res = await fetch("/api/download/e2/captcha", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_id: fileId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        document.getElementById("captchaMessage").innerHTML = `<span class="error">${data.detail || "失败"}</span>`;
-        return;
+      try {
+        const res = await fetch("/api/download/e2/captcha", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file_id: fileId }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          document.getElementById("captchaMessage").innerHTML = `<span class="error">${apiErrorMessage(data, "获取验证码失败")}</span>`;
+          return;
+        }
+        applyCaptchaPayload(data);
+        document.getElementById("captchaMessage").textContent = "请输入图中验证码（区分大小写）";
+      } finally {
+        captchaState.loading = false;
+        document.getElementById("captchaSubmit").disabled = false;
+        document.getElementById("captchaRefresh").disabled = false;
       }
+    }
+
+    function applyCaptchaPayload(data) {
       captchaState.sessionId = data.session_id;
       document.getElementById("captchaFileName").textContent = `${data.project_name} — ${data.file_name}`;
       document.getElementById("captchaImg").src = `data:${data.content_type};base64,${data.captcha_base64}`;
-      document.getElementById("captchaMessage").textContent = "请输入图中验证码（与官网一致）";
+      document.getElementById("captchaInput").value = "";
+    }
+
+    function apiErrorMessage(data, fallback = "下载失败") {
+      if (!data || data.detail == null) return fallback;
+      if (typeof data.detail === "string") return data.detail;
+      if (Array.isArray(data.detail)) {
+        return data.detail.map(item => item.msg || item).join("；");
+      }
+      return fallback;
+    }
+
+    function filenameFromDisposition(disp) {
+      if (!disp) return "";
+      const star = disp.match(/filename\*=UTF-8''([^;]+)/i);
+      if (star) {
+        try { return decodeURIComponent(star[1]); } catch (_) { /* ignore */ }
+      }
+      const plain = disp.match(/filename="?([^";]+)"?/i);
+      return plain ? plain[1] : "";
     }
 
     async function submitCaptcha() {
       const captcha = document.getElementById("captchaInput").value.trim();
-      if (!captcha) return;
+      if (!captcha || captchaState.loading) return;
+      if (!captchaState.sessionId) {
+        await openCaptcha(captchaState.fileId);
+        document.getElementById("captchaMessage").innerHTML = `<span class="error">会话未就绪，已重新获取验证码，请重新输入。</span>`;
+        return;
+      }
+      document.getElementById("captchaSubmit").disabled = true;
       document.getElementById("captchaMessage").textContent = "正在下载…";
       const res = await fetch("/api/download/e2/file", {
         method: "POST",
@@ -477,37 +725,75 @@
           captcha,
         }),
       });
+      document.getElementById("captchaSubmit").disabled = false;
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        document.getElementById("captchaMessage").innerHTML = `<span class="error">${data.detail || "下载失败"}</span>`;
+        const msg = apiErrorMessage(data);
+        document.getElementById("captchaMessage").innerHTML = `<span class="error">${msg}</span>`;
+        if (/验证码|过期|换一张|未返回有效文件/.test(msg)) {
+          const refreshed = await refreshCaptchaImage(true);
+          if (!refreshed && /过期|会话/.test(msg)) {
+            await openCaptcha(captchaState.fileId);
+          }
+        }
         return;
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const disp = res.headers.get("Content-Disposition") || "";
-      const m = disp.match(/filename="?([^";]+)"?/i);
       const a = document.createElement("a");
       a.href = url;
-      a.download = m ? decodeURIComponent(m[1]) : "e2_attachment.pdf";
+      a.download = filenameFromDisposition(disp) || "e2_attachment.pdf";
       a.click();
       URL.revokeObjectURL(url);
       document.getElementById("captchaMessage").textContent = "下载成功";
       setTimeout(() => document.getElementById("captchaModal").classList.remove("show"), 800);
     }
 
-    async function refreshCaptchaImage() {
-      if (!captchaState.sessionId) return;
-      const res = await fetch(`/api/download/e2/refresh?session_id=${encodeURIComponent(captchaState.sessionId)}`, { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        document.getElementById("captchaImg").src = `data:${data.content_type};base64,${data.captcha_base64}`;
-        document.getElementById("captchaInput").value = "";
+    async function refreshCaptchaImage(silent = false) {
+      if (!captchaState.sessionId) {
+        if (!silent) {
+          document.getElementById("captchaMessage").innerHTML = `<span class="error">会话不存在，正在重新获取验证码…</span>`;
+        }
+        if (captchaState.fileId) {
+          await openCaptcha(captchaState.fileId);
+        }
+        return false;
+      }
+      if (!silent) {
+        document.getElementById("captchaMessage").textContent = "正在刷新验证码…";
+      }
+      document.getElementById("captchaRefresh").disabled = true;
+      try {
+        const res = await fetch(`/api/download/e2/refresh?session_id=${encodeURIComponent(captchaState.sessionId)}`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = apiErrorMessage(data, "刷新验证码失败");
+          if (/过期|会话/.test(msg) && captchaState.fileId) {
+            if (!silent) {
+              document.getElementById("captchaMessage").innerHTML = `<span class="error">${msg}，正在重新获取…</span>`;
+            }
+            await openCaptcha(captchaState.fileId);
+            return true;
+          }
+          if (!silent) {
+            document.getElementById("captchaMessage").innerHTML = `<span class="error">${msg}</span>`;
+          }
+          return false;
+        }
+        applyCaptchaPayload(data);
+        if (!silent) {
+          document.getElementById("captchaMessage").textContent = "已刷新，请输入新验证码";
+        }
+        return true;
+      } finally {
+        document.getElementById("captchaRefresh").disabled = false;
       }
     }
 
     async function startSync(fullSync, opts = {}) {
       document.getElementById("syncMessage").textContent = "提交同步任务…";
-      const force = fullSync && document.getElementById("forceFullSync").checked;
+      const force = opts.force ?? (fullSync && document.getElementById("forceFullSync").checked);
       const res = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -521,7 +807,36 @@
         }),
       });
       const data = await res.json();
-      document.getElementById("syncMessage").textContent = res.ok ? data.message : (data.detail || "失败");
+      if (!res.ok) {
+        document.getElementById("syncMessage").textContent = data.detail || "失败";
+        return;
+      }
+      document.getElementById("syncMessage").textContent = data.message;
+      syncPanelActive = true;
+      lastSyncRunning = true;
+      startSyncPolling();
+      await refreshSyncStatus();
+    }
+
+    function startForceFullSync(sourceKey) {
+      const configs = {
+        link: {
+          label: "投用前 link.sthj（受理 / 拟审批 / 审批决定）",
+          sources: ["link_sthj"],
+          types: LINK_SYNC_TYPES,
+        },
+        e2: {
+          label: "投用后 e2.sthj（中后期信息公开）",
+          sources: ["e2_qygk"],
+          types: E2_SYNC_TYPES,
+        },
+      };
+      const cfg = configs[sourceKey];
+      if (!cfg) return;
+      if (!confirm(`将强制全量重新下载：${cfg.label}\n\n跳过完整性检查，已有数据也会重新抓取，耗时较长。确定开始？`)) {
+        return;
+      }
+      startSync(true, { sources: cfg.sources, types: cfg.types, force: true });
     }
 
     async function downloadZip() {
@@ -550,11 +865,16 @@
     document.getElementById("syncFullBtn").addEventListener("click", () => {
       const force = document.getElementById("forceFullSync").checked;
       const hint = force
-        ? "将强制重新下载全部数据（跳过完整性检查），耗时很长，确定？"
+        ? "将强制重新下载 link + e2 全部数据（跳过完整性检查），耗时很长，确定？"
         : "全量同步会先检查本地是否完整；已完整则跳过下载。确定开始？";
       if (confirm(hint)) startSync(true);
     });
-    document.getElementById("refreshStatusBtn").addEventListener("click", refreshSyncStatus);
+    document.getElementById("syncLinkForceBtn").addEventListener("click", () => startForceFullSync("link"));
+    document.getElementById("syncE2ForceBtn").addEventListener("click", () => startForceFullSync("e2"));
+    document.getElementById("refreshStatusBtn").addEventListener("click", () => {
+      syncPanelActive = true;
+      refreshSyncStatus();
+    });
     document.getElementById("downloadBtn").addEventListener("click", downloadZip);
     document.getElementById("progressClose").addEventListener("click", () => document.getElementById("progressModal").classList.remove("show"));
     document.getElementById("captchaClose").addEventListener("click", () => document.getElementById("captchaModal").classList.remove("show"));
@@ -591,7 +911,9 @@
     });
 
     loadStats();
-    refreshSyncStatus();
+    refreshSyncStatus().then(data => {
+      if (data.running) startSyncPolling();
+    });
     loadFacets().then(search);
   </script>
 </body>

@@ -36,6 +36,12 @@ class LinkSthjSyncService:
             if job_id is not None:
                 progress = f"正在同步：{label} 第 {page_no}/{total_pages} 页"
                 if stats is not None:
+                    stats["current"] = {
+                        "source": "link_sthj",
+                        "disclosure_type": disclosure_type,
+                        "page": page_no,
+                        "total_pages": total_pages,
+                    }
                     self.store.update_sync_progress(job_id, progress, stats)
                 else:
                     self.store.update_sync_progress(job_id, progress)

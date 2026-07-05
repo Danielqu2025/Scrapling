@@ -100,11 +100,13 @@ class E2SyncService:
         resume: bool,
         force_refresh: bool,
     ) -> dict[str, int]:
+        year_label = year or "全部"
         pages_done = 0
         events_saved = 0
         files_saved = 0
         details_fetched = 0
         details_skipped = 0
+        detail_errors = 0
         page_no = start_page or 1
         if resume and max_pages is None and start_page is None and year and not force_refresh:
             last_page = self.store.get_max_synced_page(SOURCE_E2_QYGK, disclosure_type)
@@ -121,8 +123,16 @@ class E2SyncService:
         while page_no <= total_pages:
             logger.info("E2 sync %s page %s/%s", disclosure_type, page_no, total_pages)
             if job_id is not None:
-                progress = f"正在同步：{label} 第 {page_no}/{total_pages} 页"
+                year_bit = f"（{year_label}）" if year else ""
+                progress = f"正在同步：{label}{year_bit} 第 {page_no}/{total_pages} 页"
                 if stats is not None:
+                    stats["current"] = {
+                        "source": SOURCE_E2_QYGK,
+                        "disclosure_type": disclosure_type,
+                        "year": year_label,
+                        "page": page_no,
+                        "total_pages": total_pages,
+                    }
                     self.store.update_sync_progress(job_id, progress, stats)
                 else:
                     self.store.update_sync_progress(job_id, progress)
@@ -162,7 +172,19 @@ class E2SyncService:
                         enriched.append(record)
                         continue
 
-                    detail_html = fetch_detail_page(external_id)
+                    nm_type = (record.get("summary_json") or {}).get("nm_type")
+                    try:
+                        detail_html = fetch_detail_page(external_id, nm_type=nm_type)
+                    except Exception as exc:
+                        detail_errors += 1
+                        logger.error("E2 detail %s failed after retries: %s", external_id[:8], exc)
+                        if stats is not None:
+                            stats.setdefault("detail_errors", []).append(
+                                {"external_id": external_id, "error": str(exc)}
+                            )
+                        enriched.append(record)
+                        time.sleep(self.detail_delay)
+                        continue
                     if detail_html:
                         record = parse_detail_page(detail_html, record)
                         details_fetched += 1
@@ -198,5 +220,6 @@ class E2SyncService:
             "files": files_saved,
             "details": details_fetched,
             "details_skipped": details_skipped,
+            "detail_errors": detail_errors,
             "page_errors": page_errors,
         }

@@ -14,7 +14,17 @@ logger = logging.getLogger(__name__)
 
 LIST_URL = "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/hjxxgk/jsxmzhq_list.jsp"
 DETAIL_URL_TEMPLATE = "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/jsxmInfo_edit.jsp?id={external_id}"
+DETAIL_URL_BY_NM_TYPE = {
+    "1": "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/jsxmInfo_edit.jsp?id={external_id}",
+    "2": "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/jsxmJgysspZzys_edit.jsp?id={external_id}",
+}
 FILE_BASE = "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/file/filedown.do"
+
+
+def detail_url_for(external_id: str, nm_type: str | int | None = None) -> str:
+    key = str(nm_type or "1").strip()
+    template = DETAIL_URL_BY_NM_TYPE.get(key, DETAIL_URL_TEMPLATE)
+    return template.format(external_id=external_id)
 
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_RETRY_DELAY = 2.0
@@ -116,7 +126,9 @@ def fetch_list_page(page_no: int = 1, year: str = "", max_retries: int = DEFAULT
     headers = {"Referer": LIST_URL, "Content-Type": "application/x-www-form-urlencoded"}
 
     def _do_fetch() -> tuple[str, int]:
-        with FetcherSession(impersonate="chrome") as session:
+        with FetcherSession(
+            impersonate="chrome", retries=max_retries, retry_delay=int(DEFAULT_RETRY_DELAY)
+        ) as session:
             warmup = session.get(LIST_URL, stealthy_headers=True)
             warmup_html = response_text(warmup)
             form_fields = _extract_hidden_fields(warmup_html)
@@ -141,11 +153,17 @@ def fetch_list_page(page_no: int = 1, year: str = "", max_retries: int = DEFAULT
     return fetch_with_retry(_do_fetch, max_retries=max_retries, label=f"e2 list page {page_no}")
 
 
-def fetch_detail_page(external_id: str, max_retries: int = DEFAULT_MAX_RETRIES) -> str:
-    url = DETAIL_URL_TEMPLATE.format(external_id=external_id)
+def fetch_detail_page(
+    external_id: str,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    nm_type: str | int | None = None,
+) -> str:
+    url = detail_url_for(external_id, nm_type)
 
     def _do_fetch() -> tuple[str, int]:
-        with FetcherSession(impersonate="chrome") as session:
+        with FetcherSession(
+            impersonate="chrome", retries=max_retries, retry_delay=int(DEFAULT_RETRY_DELAY)
+        ) as session:
             response = session.get(url, stealthy_headers=True)
             return response_text(response), response_status(response)
 

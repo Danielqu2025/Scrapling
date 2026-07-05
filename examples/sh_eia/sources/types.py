@@ -56,6 +56,9 @@ FILE_TYPE_LABELS = {
     "construction_monitoring": "施工期监测结果",
     "adjustment_report": "非重大调整报告",
     "debug_measures": "调试期环保措施",
+    "e2_debug": "调试期附件",
+    "e2_construction": "建设期附件",
+    "e2_acceptance": "验收期附件",
     "acceptance_report": "验收监测报告",
     "acceptance_opinion": "验收意见",
     "acceptance_other": "验收其他说明",
@@ -68,9 +71,9 @@ FILE_TYPE_LABELS = {
 E2_PHASE_FILE_TYPES: dict[str, set[str]] = {
     "pre": {"pre_approval_notice", "pre_approval_entrust"},
     "basic": set(),
-    "construction": {"construction_measures", "construction_monitoring"},
-    "debug": {"adjustment_report", "debug_measures"},
-    "acceptance": {"acceptance_report", "acceptance_opinion", "acceptance_other"},
+    "construction": {"construction_measures", "construction_monitoring", "e2_construction"},
+    "debug": {"adjustment_report", "debug_measures", "e2_debug"},
+    "acceptance": {"acceptance_report", "acceptance_opinion", "acceptance_other", "e2_acceptance"},
 }
 
 TYPE_SORT_ORDER = {

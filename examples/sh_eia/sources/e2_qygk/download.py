@@ -3,65 +3,124 @@
 from __future__ import annotations
 
 import base64
-import threading
+import json
+import logging
 import time
 import uuid
 from typing import Any
 
 from scrapling.fetchers import FetcherSession
 
-from sources.e2_qygk.client import response_text
+from _common import is_html_response
+from db.store import EIAStore
+from sources.e2_qygk.client import detail_url_for, response_text
+
+logger = logging.getLogger(__name__)
 
 CAPTCHA_URL = "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/qygk/getValidateFjCode.do"
 FILEDOWN_URL = "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/file/filedown.do"
-DETAIL_URL_TEMPLATE = "https://e2.sthj.sh.gov.cn/qygkweb/jsp/view/jsxmInfo_edit.jsp?id={external_id}"
-
-SESSION_TTL_SECONDS = 600
-
-_store_lock = threading.Lock()
-_sessions: dict[str, dict[str, Any]] = {}
+SESSION_TTL_SECONDS = 1800
 
 
-def _purge_expired() -> None:
-    now = time.time()
-    expired = [key for key, item in _sessions.items() if now - item["created_at"] > SESSION_TTL_SECONDS]
-    for key in expired:
-        session = _sessions.pop(key, None)
-        if session and session.get("fetcher") is not None:
-            try:
-                session["fetcher"].__exit__(None, None, None)
-            except Exception:
-                pass
+def _captcha_url() -> str:
+    return f"{CAPTCHA_URL}?&time={int(time.time() * 1000)}"
 
 
-def _detail_referer(external_id: str) -> str:
-    return DETAIL_URL_TEMPLATE.format(external_id=external_id)
+def _captcha_headers(referer: str) -> dict[str, str]:
+    return {
+        "Referer": referer,
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
 
 
-def start_captcha_session(file_external_id: str, event_external_id: str) -> dict[str, str]:
-    """Open HTTP session, load detail page + captcha image."""
-    _purge_expired()
-    fetcher = FetcherSession(impersonate="chrome")
+def _open_http_session(cookies_json: str = "") -> tuple[FetcherSession, Any]:
+    fetcher = FetcherSession(impersonate="chrome", retries=5, retry_delay=2)
     session = fetcher.__enter__()
-    referer = _detail_referer(event_external_id)
-    session.get(referer, stealthy_headers=True)
-    response = session.get(CAPTCHA_URL, stealthy_headers=True, headers={"Referer": referer})
+    if cookies_json:
+        try:
+            cookies = json.loads(cookies_json)
+        except json.JSONDecodeError:
+            cookies = {}
+        if isinstance(cookies, dict):
+            for name, value in cookies.items():
+                session._curl_session.cookies.set(name, value)
+    return fetcher, session
+
+
+def _close_http_session(fetcher: FetcherSession) -> None:
+    try:
+        fetcher.__exit__(None, None, None)
+    except Exception:
+        pass
+
+
+def _export_cookies(session) -> str:
+    return json.dumps(session._curl_session.cookies.get_dict(), ensure_ascii=False)
+
+
+def _fetch_captcha_image(session, referer: str) -> tuple[bytes, str]:
+    response = session.get(_captcha_url(), stealthy_headers=True, headers=_captcha_headers(referer))
     image_bytes = response.body if isinstance(response.body, bytes) else response.body.encode()
     if len(image_bytes) < 64:
-        fetcher.__exit__(None, None, None)
         raise ValueError("无法获取验证码图片，请稍后重试。")
+    headers = response.headers or {}
+    content_type = headers.get("content-type", "image/jpeg")
+    return image_bytes, content_type
+
+
+def _is_download_error(body: bytes, text_head: str) -> bool:
+    if is_html_response(body):
+        return True
+    lowered = text_head.lower()
+    return "验证码错误" in text_head or "alert(" in lowered or "window.close" in lowered
+
+
+def _store() -> EIAStore:
+    return EIAStore()
+
+
+def _load_session_row(session_id: str) -> dict[str, Any]:
+    store = _store()
+    store.purge_expired_e2_captcha_sessions(SESSION_TTL_SECONDS)
+    row = store.get_e2_captcha_session(session_id)
+    if row is None:
+        raise ValueError("验证码会话已过期，请关闭弹窗后重新点击「验证码下载」。")
+    return row
+
+
+def _persist_cookies(session_id: str, session) -> None:
+    _store().update_e2_captcha_session_cookies(session_id, _export_cookies(session))
+
+
+def start_captcha_session(
+    file_external_id: str,
+    event_external_id: str,
+    nm_type: str | int | None = None,
+    detail_url: str | None = None,
+) -> dict[str, str]:
+    """Open HTTP session, load detail page + captcha image, persist cookies in SQLite."""
+    referer = detail_url or detail_url_for(event_external_id, nm_type)
+    fetcher, session = _open_http_session()
+    try:
+        session.get(referer, stealthy_headers=True)
+        image_bytes, content_type = _fetch_captcha_image(session, referer)
+        cookies_json = _export_cookies(session)
+    except Exception:
+        _close_http_session(fetcher)
+        raise
+    finally:
+        _close_http_session(fetcher)
 
     session_id = uuid.uuid4().hex
-    content_type = response.headers.get("content-type", "image/jpeg")
-    with _store_lock:
-        _sessions[session_id] = {
-            "created_at": time.time(),
-            "fetcher": fetcher,
-            "session": session,
-            "file_external_id": file_external_id,
-            "event_external_id": event_external_id,
-            "referer": referer,
-        }
+    _store().save_e2_captcha_session(
+        session_id,
+        file_external_id=file_external_id,
+        event_external_id=event_external_id,
+        referer=referer,
+        cookies_json=cookies_json,
+    )
+    logger.info("Started e2 captcha session %s for file %s", session_id[:8], file_external_id[:8])
     return {
         "session_id": session_id,
         "captcha_base64": base64.b64encode(image_bytes).decode("ascii"),
@@ -75,46 +134,44 @@ def submit_captcha_download(session_id: str, captcha: str) -> tuple[bytes, str]:
     if not captcha:
         raise ValueError("请输入验证码。")
 
-    with _store_lock:
-        entry = _sessions.pop(session_id, None)
-    if entry is None:
-        raise ValueError("验证码会话已过期，请重新获取。")
-
-    fetcher = entry["fetcher"]
-    session = entry["session"]
-    referer = entry["referer"]
-    file_id = entry["file_external_id"]
-
+    row = _load_session_row(session_id)
+    fetcher, session = _open_http_session(row["cookies_json"])
     try:
         response = session.post(
             FILEDOWN_URL,
-            data={"fileId": file_id, "fileYzm": captcha},
+            data={"fileId": row["file_external_id"], "fileYzm": captcha},
             stealthy_headers=True,
-            headers={"Referer": referer, "Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                "Referer": row["referer"],
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
         )
+        _persist_cookies(session_id, session)
         body = response.body if isinstance(response.body, bytes) else response.body.encode()
-        text_head = response_text(response)[:200]
-        if "验证码错误" in text_head or "alert" in text_head.lower():
-            raise ValueError("验证码错误，请重试。")
+        text_head = response_text(response)[:500]
+        if _is_download_error(body, text_head):
+            raise ValueError("验证码错误或已过期，请点击「换一张」后重新输入。")
         if len(body) < 128:
-            raise ValueError("下载失败，服务器未返回有效文件。")
-        content_type = response.headers.get("content-type", "application/octet-stream")
-        return body, content_type
+            raise ValueError("下载失败，服务器未返回有效文件，请换一张验证码后重试。")
+        headers = response.headers or {}
+        content_type = headers.get("content-type", "application/octet-stream")
     finally:
-        fetcher.__exit__(None, None, None)
+        _close_http_session(fetcher)
+
+    _store().delete_e2_captcha_session(session_id)
+    return body, content_type
 
 
 def refresh_captcha(session_id: str) -> dict[str, str]:
-    with _store_lock:
-        entry = _sessions.get(session_id)
-    if entry is None:
-        raise ValueError("验证码会话已过期，请重新获取。")
+    row = _load_session_row(session_id)
+    fetcher, session = _open_http_session(row["cookies_json"])
+    try:
+        session.get(row["referer"], stealthy_headers=True)
+        image_bytes, content_type = _fetch_captcha_image(session, row["referer"])
+        _persist_cookies(session_id, session)
+    finally:
+        _close_http_session(fetcher)
 
-    session = entry["session"]
-    referer = entry["referer"]
-    response = session.get(CAPTCHA_URL, stealthy_headers=True, headers={"Referer": referer})
-    image_bytes = response.body if isinstance(response.body, bytes) else response.body.encode()
-    content_type = response.headers.get("content-type", "image/jpeg")
     return {
         "session_id": session_id,
         "captcha_base64": base64.b64encode(image_bytes).decode("ascii"),
