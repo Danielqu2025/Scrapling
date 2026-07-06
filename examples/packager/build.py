@@ -104,7 +104,9 @@ def _should_bundle_browsers(manifest: PortableManifest, bundle_browsers: bool | 
 def _pyinstaller_cmd(manifest: PortableManifest) -> list[str]:
     sep = ";" if sys.platform.startswith("win") else ":"
     cmd = [
-        "pyinstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--noconfirm",
         "--clean",
         "--onedir",
@@ -186,8 +188,10 @@ def build_from_manifest(manifest: PortableManifest, *, bundle_browsers: bool | N
 
 
 def _build(manifest: PortableManifest, *, bundle_browsers: bool | None) -> Path:
-    if shutil.which("pyinstaller") is None:
-        raise SystemExit("PyInstaller 未安装。请先运行: pip install pyinstaller")
+    try:
+        import PyInstaller  # noqa: F401
+    except ImportError as exc:
+        raise SystemExit("PyInstaller 未安装。请先运行: pip install pyinstaller") from exc
 
     if not manifest.entry_script.exists():
         raise SystemExit(f"缺少入口脚本: {manifest.entry_script}")
