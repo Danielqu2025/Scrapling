@@ -147,6 +147,10 @@ class E2CaptchaRequest(BaseModel):
     file_id: int
 
 
+class SingleFileDownloadRequest(BaseModel):
+    file_id: int
+
+
 class E2CaptchaSubmitRequest(BaseModel):
     file_id: int
     session_id: str
@@ -174,6 +178,65 @@ def _content_disposition(filename: str, fallback: str = "download.bin") -> str:
         ascii_name = fallback
     encoded = quote(safe, safe="")
     return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded}'
+
+
+def _fetch_link_file_body(file_item: dict[str, Any]) -> tuple[bytes, str]:
+    if file_item.get("download_status") == "captcha_required":
+        raise HTTPException(status_code=400, detail="该文件需在官网输入验证码下载。")
+    from scrapling.fetchers import FetcherSession
+
+    url = resolve_download_url(file_item["file_url"], file_item.get("file_name", ""))
+    with FetcherSession(impersonate="chrome", timeout=600, retries=5) as session:
+        response = session.get(url, stealthy_headers=True, timeout=600, retries=5)
+        body = normalize_response_body(response.body)
+    filename = _safe_filename(file_item.get("file_name") or "download.pdf")
+    if is_html_response(body):
+        raise HTTPException(status_code=502, detail=f"{filename}：服务器未返回有效文件（可能已过期或不存在）")
+    return body, filename
+
+
+def _file_download_response(file_item: dict[str, Any], *, fallback: str) -> StreamingResponse:
+    body, filename = _fetch_link_file_body(file_item)
+    return StreamingResponse(
+        BytesIO(body),
+        media_type="application/pdf",
+        headers={"Content-Disposition": _content_disposition(filename, fallback=fallback)},
+    )
+
+
+def _zip_download_response(file_ids: list[int]) -> StreamingResponse:
+    files = store.get_files(file_ids)
+    if not files:
+        raise HTTPException(status_code=404, detail="未找到可下载文件。")
+
+    buffer = BytesIO()
+
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        errors: list[str] = []
+        for index, file_item in enumerate(files, 1):
+            try:
+                body, filename = _fetch_link_file_body(file_item)
+            except HTTPException as exc:
+                filename = _safe_filename(file_item.get("file_name") or f"attachment_{index}")
+                detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+                errors.append(f"{filename}: {detail}")
+                continue
+            archive.writestr(filename, body)
+
+        if errors and not any(name for name in archive.namelist() if not name.startswith("_")):
+            raise HTTPException(status_code=502, detail="所选文件均无法下载：" + "；".join(errors))
+        if errors:
+            archive.writestr(
+                "_download_errors.txt",
+                "以下文件下载失败：\n" + "\n".join(errors),
+            )
+
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="sh_eia_files.zip"'},
+    )
 
 
 def _run_sync_job(
@@ -215,7 +278,10 @@ def _run_sync_job(
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
+    return HTMLResponse(
+        (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 @app.get("/api/stats")
@@ -515,47 +581,30 @@ def api_download_e2_file(request: E2CaptchaSubmitRequest) -> StreamingResponse:
     )
 
 
+@app.get("/api/download/file/{file_id}")
+def api_download_file_get(file_id: int) -> StreamingResponse:
+    file_item = store.get_file_detail(file_id)
+    if not file_item:
+        raise HTTPException(status_code=404, detail="未找到文件。")
+    return _file_download_response(file_item, fallback=f"attachment_{file_id}.pdf")
+
+
+@app.post("/api/download/file")
+def api_download_file(request: SingleFileDownloadRequest) -> StreamingResponse:
+    file_item = store.get_file_detail(request.file_id)
+    if not file_item:
+        raise HTTPException(status_code=404, detail="未找到文件。")
+    return _file_download_response(file_item, fallback=f"attachment_{request.file_id}.pdf")
+
+
+@app.get("/api/download/zip")
+def api_download_zip_get(ids: str = Query(..., description="Comma-separated file ids")) -> StreamingResponse:
+    file_ids = [int(part.strip()) for part in ids.split(",") if part.strip()]
+    if not file_ids:
+        raise HTTPException(status_code=400, detail="请至少选择一个文件。")
+    return _zip_download_response(file_ids)
+
+
 @app.post("/api/download/zip")
 def api_download_zip(request: DownloadRequest) -> StreamingResponse:
-    files = store.get_files(request.file_ids)
-    if not files:
-        raise HTTPException(status_code=404, detail="未找到可下载文件。")
-
-    from scrapling.fetchers import FetcherSession
-
-    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    buffer = BytesIO()
-
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        with FetcherSession(impersonate="chrome") as session:
-            errors: list[str] = []
-            for index, file_item in enumerate(files, 1):
-                if file_item.get("download_status") == "captcha_required":
-                    filename = _safe_filename(file_item.get("file_name") or f"attachment_{index}")
-                    errors.append(f"{filename}: 需在官网验证码页面下载（中后期附件）")
-                    continue
-                url = resolve_download_url(file_item["file_url"], file_item.get("file_name", ""))
-                response = session.get(url, stealthy_headers=True)
-                body = normalize_response_body(response.body)
-                filename = _safe_filename(
-                    file_item.get("file_name") or f"{file_item['project_name']}_{file_item['file_type']}_{index}.pdf"
-                )
-                if is_html_response(body):
-                    errors.append(f"{filename}: 服务器未返回有效文件（可能已过期或不存在）")
-                    continue
-                archive.writestr(filename, body)
-
-            if errors and not any(name for name in archive.namelist() if not name.startswith("_")):
-                raise HTTPException(status_code=502, detail="所选文件均无法下载：" + "；".join(errors))
-            if errors:
-                archive.writestr(
-                    "_download_errors.txt",
-                    "以下文件下载失败：\n" + "\n".join(errors),
-                )
-
-    buffer.seek(0)
-    return StreamingResponse(
-        buffer,
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="sh_eia_files.zip"'},
-    )
+    return _zip_download_response(request.file_ids)

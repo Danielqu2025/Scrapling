@@ -914,7 +914,11 @@ class EIAStore:
         tokens = [token.strip() for token in query.split() if token.strip()]
         if not tokens:
             return ""
-        return " ".join(f"{token}*" for token in tokens)
+        parts: list[str] = []
+        for token in tokens:
+            escaped = token.replace('"', '""')
+            parts.append(f'"{escaped}"*')
+        return " ".join(parts)
 
     @classmethod
     def _build_order_clause(
@@ -984,19 +988,25 @@ class EIAStore:
         filter_params: list[Any],
     ) -> list[int]:
         placeholders = ",".join("?" for _ in types)
-        rows = conn.execute(
-            f"""
-            SELECT DISTINCT m.id
-            FROM projects_master m
-            JOIN masters_fts fts ON fts.rowid = m.id
-            JOIN disclosure_events e ON e.master_id = m.id
-            WHERE masters_fts MATCH ?
-              AND e.disclosure_type IN ({placeholders})
-              {filter_sql}
-            LIMIT ?
-            """,
-            (self._fts_query(query), *types, *filter_params, limit),
-        ).fetchall()
+        fts = self._fts_query(query)
+        if not fts:
+            return []
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT m.id
+                FROM projects_master m
+                JOIN masters_fts fts ON fts.rowid = m.id
+                JOIN disclosure_events e ON e.master_id = m.id
+                WHERE masters_fts MATCH ?
+                  AND e.disclosure_type IN ({placeholders})
+                  {filter_sql}
+                LIMIT ?
+                """,
+                (fts, *types, *filter_params, limit),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
         return [int(row[0]) for row in rows]
 
     def _search_master_ids_like(

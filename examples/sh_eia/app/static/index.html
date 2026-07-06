@@ -121,7 +121,8 @@
     .stage-item.completed .dot { background: var(--stage-done); }
     .stage-item.active .dot { background: var(--stage-active); }
 
-    .stage-panel { padding: 20px 24px; overflow-y: auto; }
+    .stage-panel { padding: 20px 24px; overflow-y: auto; flex: 1; }
+    .stage-panel-wrap { display: flex; flex-direction: column; overflow: hidden; }
     .stage-panel h3 { margin: 0 0 16px; color: var(--primary); }
     .field-grid { display: grid; gap: 10px; }
     .field-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
@@ -131,7 +132,8 @@
     .field-row-long .fvalue { line-height: 1.65; }
     .file-list { margin-top: 18px; }
     .file-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-    .file-item label { display: flex; align-items: center; gap: 8px; flex: 1; }
+    .file-item > span { flex: 1; min-width: 0; word-break: break-all; }
+    .file-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
     .captcha-modal .modal { width: min(420px, 100%); }
     .captcha-box { text-align: center; padding: 8px 0 16px; }
@@ -167,7 +169,6 @@
         <label class="secondary" style="cursor:pointer;padding:8px 12px;border-radius:8px;background:#64748b;color:#fff;font-size:13px;">
           导入数据库<input id="importDbInput" type="file" accept=".zip,.db" hidden>
         </label>
-        <button id="downloadBtn" class="secondary" disabled>下载弹窗内选中 (ZIP)</button>
       </div>
       <label class="filter-option" style="margin-top:8px;display:block;font-size:13px;color:#475569;">
         <input id="forceFullSync" type="checkbox">
@@ -272,7 +273,10 @@
       </div>
       <div class="modal-body">
         <div id="stageRail" class="stage-rail"></div>
-        <div id="stagePanel" class="stage-panel"></div>
+        <div class="stage-panel-wrap">
+          <div id="stagePanel" class="stage-panel"></div>
+          <div id="downloadStatusMessage" class="meta" style="padding:0 24px 16px;color:#0369a1"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -300,7 +304,6 @@
   </div>
 
   <script>
-    const selectedFileIds = new Set();
     let progressData = null;
     let activeStageKey = null;
     let captchaState = { fileId: null, sessionId: null };
@@ -555,8 +558,6 @@
     }
 
     function renderResults(items) {
-      selectedFileIds.clear();
-      document.getElementById("downloadBtn").disabled = true;
       const container = document.getElementById("results");
       container.innerHTML = "";
       items.forEach(item => {
@@ -589,6 +590,7 @@
       const res = await fetch(`/api/master/${masterId}/progress${params}`);
       if (!res.ok) { alert("无法加载项目进展"); return; }
       progressData = await res.json();
+      setDownloadStatus("");
       const master = progressData.master;
       document.getElementById("progressTitle").textContent = master.canonical_name || "项目进展";
       document.getElementById("progressMeta").textContent =
@@ -634,7 +636,7 @@
           <span>[${f.file_type_label || f.file_type}] ${f.file_name || f.file_url || ""}</span>
           ${f.download_status === "captcha_required"
             ? `<button class="linkish captchaBtn" data-file-id="${f.id}">验证码下载</button>`
-            : `<label><input type="checkbox" class="fileBox" value="${f.id}"> 加入 ZIP</label>`}
+            : `<button type="button" class="linkish singleDownloadBtn" data-file-id="${f.id}">下载</button>`}
         </div>`).join("");
       panel.innerHTML = `
         <h3>${stage.label}</h3>
@@ -644,13 +646,67 @@
       panel.querySelectorAll(".captchaBtn").forEach(btn => {
         btn.addEventListener("click", () => openCaptcha(Number(btn.dataset.fileId)));
       });
-      panel.querySelectorAll(".fileBox").forEach(box => {
-        box.addEventListener("change", () => {
-          if (box.checked) selectedFileIds.add(Number(box.value));
-          else selectedFileIds.delete(Number(box.value));
-          document.getElementById("downloadBtn").disabled = selectedFileIds.size === 0;
-        });
+      panel.querySelectorAll(".singleDownloadBtn").forEach(btn => {
+        btn.addEventListener("click", () => downloadSingleFile(Number(btn.dataset.fileId), btn));
       });
+    }
+
+    function setDownloadStatus(message, isError = false) {
+      const el = document.getElementById("downloadStatusMessage");
+      el.textContent = message || "";
+      el.style.color = isError ? "#b91c1c" : "#0369a1";
+    }
+
+    function triggerNativeDownload(url) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    function saveBlobDownload(blob, filename) {
+      const a = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
+    async function triggerBrowserDownload(res, fallbackName) {
+      if (!res.ok) {
+        let message = "下载失败";
+        try {
+          const data = await res.json();
+          message = apiErrorMessage(data, message);
+        } catch (_) {}
+        setDownloadStatus(message, true);
+        alert(message);
+        return false;
+      }
+      const blob = await res.blob();
+      const filename = filenameFromDisposition(res.headers.get("Content-Disposition")) || fallbackName;
+      saveBlobDownload(blob, filename);
+      return true;
+    }
+
+    function downloadSingleFile(fileId, buttonEl) {
+      setDownloadStatus("已开始下载，请查看浏览器下载栏。大文件可能需要等待较长时间。");
+      triggerNativeDownload(`/api/download/file/${fileId}`);
+      if (buttonEl) {
+        const oldText = buttonEl.textContent;
+        buttonEl.disabled = true;
+        buttonEl.textContent = "下载中…";
+        setTimeout(() => {
+          buttonEl.disabled = false;
+          buttonEl.textContent = oldText;
+        }, 1500);
+      }
     }
 
     async function openCaptcha(fileId) {
@@ -839,20 +895,6 @@
       startSync(true, { sources: cfg.sources, types: cfg.types, force: true });
     }
 
-    async function downloadZip() {
-      const res = await fetch("/api/download/zip", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_ids: [...selectedFileIds] }),
-      });
-      if (!res.ok) { alert("下载失败"); return; }
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "sh_eia_files.zip";
-      a.click();
-    }
-
     document.getElementById("searchBtn").addEventListener("click", search);
     document.getElementById("resetFiltersBtn").addEventListener("click", resetFilters);
     document.getElementById("query").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
@@ -875,7 +917,6 @@
       syncPanelActive = true;
       refreshSyncStatus();
     });
-    document.getElementById("downloadBtn").addEventListener("click", downloadZip);
     document.getElementById("progressClose").addEventListener("click", () => document.getElementById("progressModal").classList.remove("show"));
     document.getElementById("captchaClose").addEventListener("click", () => document.getElementById("captchaModal").classList.remove("show"));
     document.getElementById("captchaSubmit").addEventListener("click", submitCaptcha);
