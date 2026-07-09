@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import uuid
@@ -14,7 +15,16 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _app_root() -> Path:
+    if root := os.environ.get("NOC_GB_MONITOR_APP_ROOT"):
+        return Path(root)
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT = _app_root()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
