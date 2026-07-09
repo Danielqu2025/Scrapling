@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>标准公告查询</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      --primary: #1e4d6b;
+      --primary-light: #e8f4fc;
+      --accent: #0d9488;
+      --border: #dbe3ee;
+      --muted: #64748b;
+      --bg: #f1f5f9;
+      --card: #fff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: #1e293b; }
+    header {
+      background: linear-gradient(135deg, #1e4d6b 0%, #0d9488 100%);
+      color: #fff;
+      padding: 24px 28px;
+    }
+    header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; }
+    header p { margin: 0; opacity: .9; font-size: 14px; }
+    main { max-width: 1280px; margin: 0 auto; padding: 24px; }
+    .panel {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 8px rgba(0,0,0,.06);
+    }
+    .query-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      align-items: end;
+    }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    select, input[type=text] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: #fff;
+    }
+    .source-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+    .source-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      background: #fafbfc;
+      transition: border-color .15s, background .15s;
+    }
+    .source-chip:has(input:checked) {
+      border-color: var(--accent);
+      background: #ecfdf5;
+    }
+    .source-chip input { margin: 0; }
+    .source-chip small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+    button {
+      padding: 10px 20px;
+      border: 0;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+    }
+    button:hover:not(:disabled) { filter: brightness(1.08); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    button.secondary { background: #64748b; }
+    button.outline { background: #fff; color: var(--primary); border: 1px solid var(--primary); }
+    .status-bar {
+      display: none;
+      padding: 14px 18px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    .status-bar.show { display: block; }
+    .status-bar.running { background: #ecfeff; border: 1px solid #7dd3fc; color: #0c4a6e; }
+    .status-bar.done { background: #f0fdf4; border: 1px solid #86efac; color: #14532d; }
+    .status-bar.failed { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      background: var(--primary-light);
+      border-radius: 10px;
+      padding: 14px 16px;
+      text-align: center;
+    }
+    .stat-card .num { font-size: 28px; font-weight: 700; color: var(--primary); }
+    .stat-card .lbl { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .filter-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+    .filter-row input[type=text] { flex: 1; min-width: 200px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: #f8fafc; font-weight: 600; white-space: nowrap; position: sticky; top: 0; }
+    tr:hover td { background: #fafbfc; }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #e2e8f0;
+      color: #334155;
+    }
+    .tag.gb { background: #dbeafe; color: #1e40af; }
+    .tag.hb { background: #fef3c7; color: #92400e; }
+    .tag.db { background: #d1fae5; color: #065f46; }
+    a { color: #0369a1; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .empty { text-align: center; padding: 48px 20px; color: var(--muted); }
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: -2px;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>标准公告查询</h1>
+    <p>国家标准 · 行业标准（AQ/GA/HG/HJ）· 上海市地方标准</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <div class="query-grid">
+        <div>
+          <label for="year">年份</label>
+          <select id="year"></select>
+        </div>
+        <div>
+          <label for="month">月份</label>
+          <select id="month"></select>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <label>标准类型</label>
+          <div class="source-group" id="sourceGroup"></div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="queryBtn" type="button">开始查询</button>
+        <button id="exportBtn" type="button" class="outline" disabled>导出 Excel</button>
+      </div>
+    </section>
+
+    <div id="statusBar" class="status-bar"></div>
+
+    <section class="panel" id="resultsPanel" style="display:none;">
+      <div class="stats" id="stats"></div>
+      <div class="filter-row">
+        <input type="text" id="keyword" placeholder="搜索标准号、名称、公告标题...">
+        <select id="typeFilter">
+          <option value="">全部类型</option>
+          <option value="国标">国标</option>
+          <option value="行标">行标</option>
+          <option value="地标">地标</option>
+        </select>
+        <select id="domainFilter">
+          <option value="">全部领域</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>标准号</th>
+              <th>标准名称</th>
+              <th>公告日期</th>
+              <th>匹配领域</th>
+              <th>实施日期</th>
+              <th>链接</th>
+            </tr>
+          </thead>
+          <tbody id="resultBody"></tbody>
+        </table>
+      </div>
+      <p class="meta" id="resultMeta" style="margin-top:12px;color:var(--muted);font-size:13px;"></p>
+    </section>
+
+    <section class="panel empty" id="placeholder">
+      选择年月后点击「开始查询」。数据从官方平台实时抓取，可能需要 20～60 秒。
+    </section>
+  </main>
+
+  <script>
+    const state = { jobId: null, items: [], pollTimer: null };
+
+    function el(id) { return document.getElementById(id); }
+
+    function initSelectors() {
+      const yearSel = el('year');
+      const now = new Date();
+      for (let y = now.getFullYear(); y >= 2020; y--) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y + ' 年';
+        if (y === now.getFullYear()) opt.selected = true;
+        yearSel.appendChild(opt);
+      }
+      const monthSel = el('month');
+      for (let m = 1; m <= 12; m++) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m + ' 月';
+        if (m === now.getMonth() + 1) opt.selected = true;
+        monthSel.appendChild(opt);
+      }
+    }
+
+    async function loadMeta() {
+      const res = await fetch('/api/meta');
+      const meta = await res.json();
+      const group = el('sourceGroup');
+      meta.sources.forEach(src => {
+        const label = document.createElement('label');
+        label.className = 'source-chip';
+        label.innerHTML = `
+          <input type="checkbox" name="source" value="${src.id}" checked>
+          <span>${src.label}<small>${src.desc}</small></span>
+        `;
+        group.appendChild(label);
+      });
+      const domainSel = el('domainFilter');
+      meta.domains.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        domainSel.appendChild(opt);
+      });
+      meta.industry_codes.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c + '（行标）';
+        domainSel.appendChild(opt);
+      });
+      const shOpt = document.createElement('option');
+      shOpt.value = '上海';
+      shOpt.textContent = '上海（地标）';
+      domainSel.appendChild(shOpt);
+    }
+
+    function selectedSources() {
+      return [...document.querySelectorAll('input[name=source]:checked')].map(i => i.value);
+    }
+
+    function setStatus(kind, message) {
+      const bar = el('statusBar');
+      bar.className = 'status-bar show ' + kind;
+      bar.innerHTML = kind === 'running'
+        ? `<span class="spinner"></span>${message}`
+        : message;
+    }
+
+    function typeTag(stdType) {
+      const cls = stdType === '国标' ? 'gb' : stdType === '行标' ? 'hb' : 'db';
+      return `<span class="tag ${cls}">${stdType}</span>`;
+    }
+
+    function renderStats(counts) {
+      el('stats').innerHTML = [
+        ['total', '合计', counts.total],
+        ['gb', '国标', counts.gb],
+        ['hb', '行标', counts.hb],
+        ['db', '地标', counts.db],
+      ].map(([, label, num]) => `
+        <div class="stat-card">
+          <div class="num">${num}</div>
+          <div class="lbl">${label}</div>
+        </div>
+      `).join('');
+    }
+
+    function applyFilters() {
+      const kw = el('keyword').value.trim().toLowerCase();
+      const type = el('typeFilter').value;
+      const domain = el('domainFilter').value;
+      let items = state.items;
+      if (type) items = items.filter(i => i.std_type === type);
+      if (domain) items = items.filter(i => (i.matched_domains || '').includes(domain));
+      if (kw) {
+        items = items.filter(i =>
+          (i.std_code || '').toLowerCase().includes(kw) ||
+          (i.std_name || '').toLowerCase().includes(kw) ||
+          (i.notice_title || '').toLowerCase().includes(kw) ||
+          (i.notice_code || '').toLowerCase().includes(kw)
+        );
+      }
+      renderTable(items);
+    }
+
+    function renderTable(items) {
+      const body = el('resultBody');
+      if (!items.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty">没有匹配结果</td></tr>';
+      } else {
+        body.innerHTML = items.map(item => `
+          <tr>
+            <td>${typeTag(item.std_type)}${item.industry_code ? '<br><small>' + item.industry_code + '</small>' : ''}</td>
+            <td><strong>${esc(item.std_code)}</strong><br><small style="color:var(--muted)">${esc(item.notice_code)}</small></td>
+            <td>${esc(item.std_name)}</td>
+            <td>${esc(item.notice_date)}</td>
+            <td>${esc(item.matched_domains)}</td>
+            <td>${esc(item.implement_date || '—')}</td>
+            <td>
+              <a href="${esc(item.notice_url)}" target="_blank" rel="noopener">公告</a>
+              ${item.info_url ? ' · <a href="' + esc(item.info_url) + '" target="_blank" rel="noopener">详情</a>' : ''}
+              ${item.download_url ? ' · <a href="' + esc(item.download_url) + '" target="_blank" rel="noopener">全文</a>' : ''}
+            </td>
+          </tr>
+        `).join('');
+      }
+      el('resultMeta').textContent = `显示 ${items.length} / ${state.items.length} 条`;
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    }
+
+    async function pollJob(jobId) {
+      const res = await fetch('/api/query/' + jobId);
+      const data = await res.json();
+      if (data.status === 'running') {
+        setStatus('running', data.message || '查询中...');
+        return;
+      }
+      clearInterval(state.pollTimer);
+      state.pollTimer = null;
+      el('queryBtn').disabled = false;
+
+      if (data.status === 'failed') {
+        setStatus('failed', data.message || '查询失败');
+        return;
+      }
+
+      state.items = data.items || [];
+      renderStats(data.counts || {});
+      el('resultsPanel').style.display = 'block';
+      el('placeholder').style.display = 'none';
+      el('exportBtn').disabled = false;
+      applyFilters();
+      const c = data.counts || {};
+      setStatus('done', `查询完成：国标 ${c.gb || 0} 条，行标 ${c.hb || 0} 条，地标 ${c.db || 0} 条，合计 ${c.total || 0} 条。`);
+    }
+
+    async function startQuery() {
+      const sources = selectedSources();
+      if (!sources.length) {
+        alert('请至少选择一种标准类型');
+        return;
+      }
+      el('queryBtn').disabled = true;
+      el('exportBtn').disabled = true;
+      el('resultsPanel').style.display = 'none';
+      setStatus('running', '正在提交查询任务...');
+
+      const res = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year: Number(el('year').value),
+          month: Number(el('month').value),
+          sources,
+        }),
+      });
+      const data = await res.json();
+      state.jobId = data.job_id;
+      state.pollTimer = setInterval(() => pollJob(state.jobId), 1500);
+      pollJob(state.jobId);
+    }
+
+    function exportExcel() {
+      if (!state.jobId) return;
+      window.location.href = '/api/export/' + state.jobId;
+    }
+
+    el('queryBtn').addEventListener('click', startQuery);
+    el('exportBtn').addEventListener('click', exportExcel);
+    el('keyword').addEventListener('input', applyFilters);
+    el('typeFilter').addEventListener('change', applyFilters);
+    el('domainFilter').addEventListener('change', applyFilters);
+
+    initSelectors();
+    loadMeta();
+  </script>
+</body>
+</html>
