@@ -6,31 +6,54 @@ import json
 import logging
 import os
 import re
+import tempfile
 import threading
 import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from _common import is_html_response, normalize_response_body, resolve_download_url
 from _paths import APP_DIR, DATA_DIR
+from app.admin import router as admin_router
+from app.auth import auth_enabled, ensure_auth_ready, router as auth_router, user_from_request
+from app.security import setup_security
 from db.store import EIAStore, SORT_BY_OPTIONS, SORT_ORDER_OPTIONS, utc_now
 from sources.e2_qygk.download import refresh_captcha, start_captcha_session, submit_captcha_download
-from sources.types import DISCLOSURE_TYPES, SOURCE_E2_QYGK, SOURCE_LINK_STHJ
+from sources.types import (
+    DISCLOSURE_TYPES,
+    SOURCE_DISTRICT_FENGXIAN,
+    SOURCE_DISTRICT_MINHANG,
+    SOURCE_DISTRICT_SONGJIANG,
+    SOURCE_E2_QYGK,
+    SOURCE_LINK_STHJ,
+)
 from sync.checker import UpdateChecker
 from sync.crawler import SyncService
 
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = APP_DIR / "static"
+TEMPLATES_DIR = APP_DIR / "templates"
 DOWNLOAD_DIR = DATA_DIR / "downloads"
+
+_AUTH_PUBLIC_EXACT = {"/login", "/health", "/favicon.ico"}
+_AUTH_PUBLIC_PREFIXES = (
+    "/static/",
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/config",
+)
 
 store = EIAStore()
 sync_service = SyncService(store)
@@ -118,15 +141,51 @@ def _run_startup_check() -> None:
     _run_update_check(trigger_mode=trigger)
 
 
+def _is_public_path(path: str) -> bool:
+    if path in _AUTH_PUBLIC_EXACT:
+        return True
+    return any(path == p.rstrip("/") or path.startswith(p) for p in _AUTH_PUBLIC_PREFIXES)
+
+
+class AuthGateMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not auth_enabled() or _is_public_path(request.url.path):
+            return await call_next(request)
+
+        user = user_from_request(request)
+        path = request.url.path
+        if user is None:
+            if path.startswith("/api/"):
+                return JSONResponse(status_code=401, content={"detail": "未登录"})
+            return RedirectResponse(url="/login", status_code=302)
+
+        if path.startswith("/admin") or path.startswith("/api/admin"):
+            if user.get("role") != "admin":
+                if path.startswith("/api/"):
+                    return JSONResponse(status_code=403, content={"detail": "需要管理员权限"})
+                return RedirectResponse(url="/", status_code=302)
+
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_auth_ready()
     if _startup_check_enabled():
         threading.Thread(target=_run_startup_check, daemon=True, name="sh_eia_startup_check").start()
     yield
 
 
 app = FastAPI(title="上海环评资料检索", version="0.1.0", lifespan=lifespan)
+setup_security(app)
+app.add_middleware(AuthGateMiddleware)
+app.include_router(auth_router)
+app.include_router(admin_router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+def _read_template(name: str) -> str:
+    return (TEMPLATES_DIR / name).read_text(encoding="utf-8")
 
 
 class SyncRequest(BaseModel):
@@ -284,6 +343,35 @@ def index() -> HTMLResponse:
     )
 
 
+@app.get("/login", response_class=HTMLResponse)
+def login_page() -> HTMLResponse:
+    return HTMLResponse(
+        _read_template("login.html"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page() -> HTMLResponse:
+    return HTMLResponse(
+        _read_template("admin.html"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page() -> HTMLResponse:
+    return HTMLResponse(
+        (STATIC_DIR / "settings.html").read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
+
+
+@app.get("/health")
+def health() -> dict[str, Any]:
+    return {"status": "ok", "auth_enabled": auth_enabled()}
+
+
 @app.get("/api/stats")
 def api_stats() -> dict[str, Any]:
     return store.stats()
@@ -345,7 +433,13 @@ def api_search(
         raise HTTPException(status_code=400, detail=f"Unknown sort_by: {sort_by}")
     if sort_order not in SORT_ORDER_OPTIONS:
         raise HTTPException(status_code=400, detail=f"Unknown sort_order: {sort_order}")
-    if source and source not in {SOURCE_LINK_STHJ, SOURCE_E2_QYGK}:
+    if source and source not in {
+        SOURCE_LINK_STHJ,
+        SOURCE_E2_QYGK,
+        SOURCE_DISTRICT_FENGXIAN,
+        SOURCE_DISTRICT_MINHANG,
+        SOURCE_DISTRICT_SONGJIANG,
+    }:
         raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
     results = store.search(
         q,
@@ -423,27 +517,50 @@ def api_updates_check(background_tasks: BackgroundTasks) -> dict[str, Any]:
 
 
 @app.get("/api/database/export")
-def api_database_export() -> StreamingResponse:
+def api_database_export(background_tasks: BackgroundTasks) -> FileResponse:
     if not store.db_path.exists():
         raise HTTPException(status_code=404, detail="当前没有可导出的数据库。")
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    payload = store.export_database_zip()
-    return StreamingResponse(
-        BytesIO(payload),
+    fd, tmp_name = tempfile.mkstemp(prefix="sh_eia_export_", suffix=".zip")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        store.export_database_zip_to(tmp_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    background_tasks.add_task(lambda p=tmp_path: p.unlink(missing_ok=True))
+    return FileResponse(
+        path=tmp_path,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="sh_eia_backup_{stamp}.zip"'},
+        filename=f"sh_eia_backup_{stamp}.zip",
     )
 
 
 @app.post("/api/database/import")
-async def api_database_import(file: UploadFile = File(...)) -> dict[str, Any]:
+async def api_database_import(
+    file: UploadFile = File(...),
+    mode: str = Form(default="merge"),
+) -> dict[str, Any]:
     if sync_running:
         raise HTTPException(status_code=409, detail="同步进行中，请稍后再导入数据库。")
+    mode_norm = (mode or "merge").strip().lower()
+    if mode_norm not in {"merge", "replace"}:
+        raise HTTPException(status_code=400, detail="mode 仅支持 merge 或 replace")
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="上传文件为空。")
     try:
-        result = store.import_database_bytes(data, backup=True)
+        if mode_norm == "replace":
+            result = store.import_database_bytes(data, backup=True)
+            message = "数据库已整库替换导入。"
+        else:
+            result = store.merge_database_bytes(data, backup=True)
+            message = (
+                f"增量合并完成：扫描 {result.get('scanned', 0)} 条，"
+                f"新增 {result.get('inserted', 0)}，更新 {result.get('updated', 0)}，"
+                f"跳过较旧 {result.get('skipped_older', 0)}。"
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _reload_store()
@@ -451,13 +568,13 @@ async def api_database_import(file: UploadFile = File(...)) -> dict[str, Any]:
         checking=False,
         has_updates=False,
         checked_at=utc_now(),
-        message="已导入数据库备份。",
-        new_count=0,
-        details={},
+        message=message,
+        new_count=int(result.get("inserted", 0) or 0),
+        details=result if mode_norm == "merge" else {},
         auto_sync_started=False,
         error="",
     )
-    return {"status": "success", "message": "数据库导入成功。", **result}
+    return {"status": "success", "message": message, **result}
 
 
 @app.post("/api/sync")
@@ -466,7 +583,13 @@ def api_sync(request: SyncRequest, background_tasks: BackgroundTasks) -> dict[st
         raise HTTPException(status_code=409, detail="已有同步任务正在运行，请稍后再试。")
 
     for source in request.sources:
-        if source not in {SOURCE_LINK_STHJ, SOURCE_E2_QYGK}:
+        if source not in {
+            SOURCE_LINK_STHJ,
+            SOURCE_E2_QYGK,
+            SOURCE_DISTRICT_FENGXIAN,
+            SOURCE_DISTRICT_MINHANG,
+            SOURCE_DISTRICT_SONGJIANG,
+        }:
             raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
 
     for disclosure_type in request.disclosure_types:
@@ -480,6 +603,12 @@ def api_sync(request: SyncRequest, background_tasks: BackgroundTasks) -> dict[st
         source_labels.append("link 投用前")
     if SOURCE_E2_QYGK in request.sources:
         source_labels.append("e2 投用后")
+    if SOURCE_DISTRICT_FENGXIAN in request.sources:
+        source_labels.append("奉贤区")
+    if SOURCE_DISTRICT_MINHANG in request.sources:
+        source_labels.append("闵行区")
+    if SOURCE_DISTRICT_SONGJIANG in request.sources:
+        source_labels.append("松江区")
     scope = "、".join(source_labels) if source_labels else "全部来源"
     force_hint = "，强制重下" if request.force else ""
     background_tasks.add_task(
@@ -514,7 +643,13 @@ def api_sync_completeness(
     selected_sources = sources or [SOURCE_LINK_STHJ, SOURCE_E2_QYGK]
     selected_types = types or list(DISCLOSURE_TYPES)
     for source in selected_sources:
-        if source not in {SOURCE_LINK_STHJ, SOURCE_E2_QYGK}:
+        if source not in {
+            SOURCE_LINK_STHJ,
+            SOURCE_E2_QYGK,
+            SOURCE_DISTRICT_FENGXIAN,
+            SOURCE_DISTRICT_MINHANG,
+            SOURCE_DISTRICT_SONGJIANG,
+        }:
             raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
     for disclosure_type in selected_types:
         if disclosure_type not in DISCLOSURE_TYPES:

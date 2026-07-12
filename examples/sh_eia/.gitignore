@@ -15,6 +15,10 @@ venv/
 *.db
 *.db-*
 
+# Secrets / local env
+.env
+.env.local
+
 # Python cache
 __pycache__/
 *.py[cod]

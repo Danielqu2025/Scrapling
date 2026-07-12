@@ -15,6 +15,12 @@ Optional environment variables:
     SH_EIA_SYNC_MAX_PAGES=1     # pages per type for scheduled sync
     SH_EIA_STARTUP_CHECK=1      # check official site on startup; set 0 to disable
     SH_EIA_STARTUP_CHECK_MODE=remind  # remind | auto | off
+    SH_EIA_AUTH_ENABLED=0       # set 1 for public deploy (JWT + approval)
+    SH_EIA_JWT_SECRET=...       # required when auth enabled
+    SH_EIA_ADMIN_USERNAME=admin
+    SH_EIA_ADMIN_PASSWORD=...
+
+Public deploy: see DEPLOY-PUBLIC.md; or use run.sh / run.ps1 to load .env.
 """
 
 from __future__ import annotations

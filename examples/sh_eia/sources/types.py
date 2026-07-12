@@ -4,6 +4,9 @@ from __future__ import annotations
 
 SOURCE_LINK_STHJ = "link_sthj"
 SOURCE_E2_QYGK = "e2_qygk"
+SOURCE_DISTRICT_FENGXIAN = "district_fengxian"
+SOURCE_DISTRICT_MINHANG = "district_minhang"
+SOURCE_DISTRICT_SONGJIANG = "district_songjiang"
 
 SOURCES = {
     SOURCE_LINK_STHJ: {
@@ -13,6 +16,18 @@ SOURCES = {
     SOURCE_E2_QYGK: {
         "label": "中后期信息公开（投用后）",
         "base_host": "https://e2.sthj.sh.gov.cn",
+    },
+    SOURCE_DISTRICT_FENGXIAN: {
+        "label": "奉贤区环评公示",
+        "base_host": "http://211.136.184.90:8090",
+    },
+    SOURCE_DISTRICT_MINHANG: {
+        "label": "闵行区环评公示",
+        "base_host": "https://zwgk.shmh.gov.cn",
+    },
+    SOURCE_DISTRICT_SONGJIANG: {
+        "label": "松江区环评公示",
+        "base_host": "https://www.songjiang.gov.cn",
     },
 }
 
@@ -45,6 +60,11 @@ DISCLOSURE_TYPES = {
 
 LINK_STHJ_TYPES = [k for k, v in DISCLOSURE_TYPES.items() if v["source"] == SOURCE_LINK_STHJ]
 E2_QYGK_TYPES = [k for k, v in DISCLOSURE_TYPES.items() if v["source"] == SOURCE_E2_QYGK]
+# 区级与市级共用 disclosure_type 键；入库时 source 写 district_*。
+DISTRICT_FENGXIAN_TYPES = list(LINK_STHJ_TYPES)
+DISTRICT_MINHANG_TYPES = list(LINK_STHJ_TYPES)
+# 松江公开接口目前仅「环评项目公告」≈ 审批决定。
+DISTRICT_SONGJIANG_TYPES = ["approval_decision"]
 
 FILE_TYPE_LABELS = {
     "report": "环评报告",

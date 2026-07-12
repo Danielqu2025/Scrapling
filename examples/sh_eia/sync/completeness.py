@@ -7,7 +7,19 @@ from typing import Any
 
 from _common import LIST_URLS, extract_total_pages, paginate_action, parse_list_records
 from db.store import EIAStore
-from sources.types import DISCLOSURE_TYPES, E2_QYGK_TYPES, LINK_STHJ_TYPES, SOURCE_E2_QYGK, SOURCE_LINK_STHJ
+from sources.types import (
+    DISCLOSURE_TYPES,
+    DISTRICT_FENGXIAN_TYPES,
+    DISTRICT_MINHANG_TYPES,
+    DISTRICT_SONGJIANG_TYPES,
+    E2_QYGK_TYPES,
+    LINK_STHJ_TYPES,
+    SOURCE_DISTRICT_FENGXIAN,
+    SOURCE_DISTRICT_MINHANG,
+    SOURCE_DISTRICT_SONGJIANG,
+    SOURCE_E2_QYGK,
+    SOURCE_LINK_STHJ,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +38,7 @@ class CompletenessChecker:
         selected_sources = sources or [SOURCE_LINK_STHJ, SOURCE_E2_QYGK]
         types = disclosure_types or list(DISCLOSURE_TYPES)
         issues: list[str] = []
-        details: dict[str, Any] = {"link": {}, "e2": {}}
+        details: dict[str, Any] = {"link": {}, "e2": {}, "fengxian": {}, "minhang": {}, "songjiang": {}}
 
         if SOURCE_LINK_STHJ in selected_sources:
             for disclosure_type in [t for t in types if t in LINK_STHJ_TYPES]:
@@ -74,9 +86,114 @@ class CompletenessChecker:
                     "complete": not e2_issues,
                 }
 
+        if SOURCE_DISTRICT_FENGXIAN in selected_sources:
+            try:
+                from sources.district.fengxian import remote_totals
+
+                remote_map = remote_totals(page_size=1)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("fengxian remote totals failed")
+                issues.append(f"奉贤区：无法读取官网总量（{exc}）")
+                remote_map = {}
+            for disclosure_type in [t for t in types if t in DISTRICT_FENGXIAN_TYPES]:
+                label = f"奉贤区 · {DISCLOSURE_TYPES[disclosure_type]['label']}"
+                local = self.store.get_source_type_coverage(SOURCE_DISTRICT_FENGXIAN, disclosure_type)
+                remote_total = int(remote_map.get(disclosure_type) or 0)
+                fx_issues: list[str] = []
+                if remote_total and local["event_count"] + 5 < remote_total:
+                    fx_issues.append(
+                        f"{label}：本地 {local['event_count']} 条，官网约 {remote_total} 条"
+                    )
+                if remote_total == 0 and local["event_count"] == 0:
+                    fx_issues.append(f"{label}：尚未同步")
+                issues.extend(fx_issues)
+                details["fengxian"][disclosure_type] = {
+                    "label": label,
+                    "remote_total": remote_total,
+                    "local_event_count": local["event_count"],
+                    "local_max_page": local["max_page"],
+                    "issues": fx_issues,
+                    "complete": not fx_issues,
+                }
+
+        if SOURCE_DISTRICT_MINHANG in selected_sources:
+            try:
+                from sources.district.minhang import remote_totals
+
+                remote_map = remote_totals()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("minhang remote totals failed")
+                issues.append(f"闵行区：无法读取官网总量（{exc}）")
+                remote_map = {}
+            for disclosure_type in [t for t in types if t in DISTRICT_MINHANG_TYPES]:
+                label = f"闵行区 · {DISCLOSURE_TYPES[disclosure_type]['label']}"
+                local = self.store.get_source_type_coverage(SOURCE_DISTRICT_MINHANG, disclosure_type)
+                remote_info = remote_map.get(disclosure_type) or {}
+                remote_total = int(remote_info.get("record_count") or 0)
+                remote_pages = int(remote_info.get("page_count") or 0)
+                mh_issues: list[str] = []
+                if remote_total and local["event_count"] + 10 < remote_total:
+                    mh_issues.append(
+                        f"{label}：本地 {local['event_count']} 条，官网约 {remote_total} 条"
+                    )
+                if remote_pages and local["max_page"] < remote_pages:
+                    mh_issues.append(
+                        f"{label}：本地仅同步到第 {local['max_page']} 页，官网共 {remote_pages} 页"
+                    )
+                if remote_total == 0 and local["event_count"] == 0:
+                    mh_issues.append(f"{label}：尚未同步")
+                issues.extend(mh_issues)
+                details["minhang"][disclosure_type] = {
+                    "label": label,
+                    "remote_total": remote_total,
+                    "remote_pages": remote_pages,
+                    "local_event_count": local["event_count"],
+                    "local_max_page": local["max_page"],
+                    "issues": mh_issues,
+                    "complete": not mh_issues,
+                }
+
+        if SOURCE_DISTRICT_SONGJIANG in selected_sources:
+            try:
+                from sources.district.songjiang import remote_total as songjiang_remote_total
+
+                remote_total_sj = songjiang_remote_total(page_size=1)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("songjiang remote total failed")
+                issues.append(f"松江区：无法读取官网总量（{exc}）")
+                remote_total_sj = 0
+            for disclosure_type in [t for t in types if t in DISTRICT_SONGJIANG_TYPES]:
+                label = f"松江区 · {DISCLOSURE_TYPES[disclosure_type]['label']}"
+                local = self.store.get_source_type_coverage(SOURCE_DISTRICT_SONGJIANG, disclosure_type)
+                sj_issues: list[str] = []
+                if remote_total_sj and local["event_count"] + 5 < remote_total_sj:
+                    sj_issues.append(
+                        f"{label}：本地 {local['event_count']} 条，官网约 {remote_total_sj} 条"
+                    )
+                if remote_total_sj == 0 and local["event_count"] == 0:
+                    sj_issues.append(f"{label}：尚未同步")
+                issues.extend(sj_issues)
+                details["songjiang"][disclosure_type] = {
+                    "label": label,
+                    "remote_total": remote_total_sj,
+                    "local_event_count": local["event_count"],
+                    "local_max_page": local["max_page"],
+                    "issues": sj_issues,
+                    "complete": not sj_issues,
+                }
+
         complete = not issues
         link_complete = all(item.get("complete") for item in details["link"].values()) if details["link"] else True
         e2_complete = all(item.get("complete") for item in details["e2"].values()) if details["e2"] else True
+        fengxian_complete = (
+            all(item.get("complete") for item in details["fengxian"].values()) if details["fengxian"] else True
+        )
+        minhang_complete = (
+            all(item.get("complete") for item in details["minhang"].values()) if details["minhang"] else True
+        )
+        songjiang_complete = (
+            all(item.get("complete") for item in details["songjiang"].values()) if details["songjiang"] else True
+        )
         if complete:
             message = "本地数据与官网统计一致，无需全量下载。"
         else:
@@ -85,6 +202,9 @@ class CompletenessChecker:
             "complete": complete,
             "link_complete": link_complete,
             "e2_complete": e2_complete,
+            "fengxian_complete": fengxian_complete,
+            "minhang_complete": minhang_complete,
+            "songjiang_complete": songjiang_complete,
             "issue_count": len(issues),
             "issues": issues,
             "message": message,

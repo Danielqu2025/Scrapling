@@ -7,29 +7,52 @@
   <style>
     :root {
       color-scheme: light;
-      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-      --primary: #0b5f7a;
-      --primary-light: #e0f2fe;
-      --border: #dbe3ee;
-      --muted: #64748b;
-      --bg: #f4f7fb;
-      --stage-active: #0b5f7a;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #dbeafe;
+      --primary-soft: #eef2ff;
+      --border: #e5e7eb;
+      --muted: #6b7280;
+      --bg: #f4f6f8;
+      --text: #1f2937;
+      --danger: #dc2626;
+      --stage-active: #2563eb;
       --stage-done: #059669;
       --stage-empty: #cbd5e1;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: #1f2937; }
-    header { background: var(--primary); color: #fff; padding: 20px 24px; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff;
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    header > div:first-child { flex: 1; min-width: 240px; }
+    .user-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .user-bar-name { font-size: 14px; opacity: .95; }
+    .user-bar-link, .user-bar-btn {
+      color: #fff;
+      text-decoration: none;
+      background: rgba(255,255,255,.16);
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
     main { max-width: 1400px; margin: 0 auto; padding: 24px; }
-    .toolbar.panel { padding: 14px 20px; }
-    .toolbar .row { gap: 8px; }
-    .toolbar button, .toolbar label { font-size: 13px; padding: 8px 12px; }
 
     /* e2-style: left filters + right results */
     .search-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
     @media (max-width: 960px) { .search-layout { grid-template-columns: 1fr; } }
     .filter-panel { position: sticky; top: 16px; padding: 0; overflow: hidden; }
-    .filter-panel-head { background: var(--primary); color: #fff; padding: 14px 16px; font-weight: 600; }
+    .filter-panel-head { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff; padding: 14px 16px; font-weight: 600; }
     .filter-panel-body { padding: 16px; max-height: calc(100vh - 220px); overflow-y: auto; }
     .filter-group { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
     .filter-group:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
@@ -44,56 +67,21 @@
     .results-head h2 { margin: 0; font-size: 18px; color: var(--primary); }
     .panel { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
     .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-    input[type=text] { flex: 1; min-width: 240px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; }
-    select { padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+    input[type=text] { flex: 1; min-width: 240px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+    select { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
     button { padding: 10px 16px; border: 0; border-radius: 8px; cursor: pointer; background: var(--primary); color: #fff; }
-    button.secondary { background: #64748b; }
+    button:hover { background: var(--primary-hover); }
+    button.secondary { background: var(--primary-soft); color: #1e3a8a; }
+    button.secondary:hover { background: #e0e7ff; }
     button.linkish { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+    button.linkish:hover { background: var(--primary-soft); }
     button:disabled { opacity: .6; cursor: not-allowed; }
+    button:disabled:hover { background: var(--primary); }
+    button.secondary:disabled:hover { background: var(--primary-soft); }
     .stats, .meta { color: var(--muted); font-size: 14px; }
-    .message { margin-top: 10px; color: #0369a1; }
-    .error { color: #b91c1c; }
-    .sync-status {
-      display: none;
-      margin-top: 12px;
-      padding: 12px 14px;
-      border-radius: 10px;
-      border: 1px solid #bae6fd;
-      background: #f0f9ff;
-    }
-    .sync-status.show { display: block; }
-    .sync-status.running { border-color: #7dd3fc; background: #ecfeff; }
-    .sync-status.success { border-color: #86efac; background: #f0fdf4; }
-    .sync-status.failed { border-color: #fca5a5; background: #fef2f2; }
-    .sync-status-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
-    .sync-status-badge {
-      display: inline-block;
-      padding: 2px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-      background: #0ea5e9;
-      color: #fff;
-    }
-    .sync-status.success .sync-status-badge { background: #059669; }
-    .sync-status.failed .sync-status-badge { background: #dc2626; }
-    .sync-status-message { font-size: 15px; color: #0c4a6e; line-height: 1.5; }
-    .sync-status-detail { margin-top: 6px; font-size: 13px; color: #64748b; }
-    .sync-progress-bar {
-      margin-top: 10px;
-      height: 6px;
-      border-radius: 999px;
-      background: #dbeafe;
-      overflow: hidden;
-    }
-    .sync-progress-bar > span {
-      display: block;
-      height: 100%;
-      background: linear-gradient(90deg, #0ea5e9, #0284c7);
-      width: 0%;
-      transition: width .4s ease;
-    }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--primary-light); color: #075985; font-size: 12px; margin-right: 8px; }
+    .message { margin-top: 10px; color: #1e40af; }
+    .error { color: var(--danger); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--primary-light); color: #1e40af; font-size: 12px; margin-right: 8px; }
     .result-card { border-top: 1px solid var(--border); padding: 16px 0; }
     .result-card h3 { margin: 0 0 8px; font-size: 18px; }
     .update-banner { display: none; background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
@@ -143,48 +131,19 @@
 </head>
 <body>
   <header>
-    <h1>上海环评资料检索</h1>
-    <p>整合投用前公示（受理→拟审批→审批决定）与中后期信息公开，按项目全生命周期展示</p>
+    <div>
+      <h1>上海环评资料检索</h1>
+      <p>整合投用前公示（受理→拟审批→审批决定）与中后期信息公开，按项目全生命周期展示</p>
+    </div>
+    <div id="userBar" class="user-bar" hidden></div>
   </header>
   <main>
     <section id="updateBanner" class="update-banner panel">
       <div id="updateBannerText"></div>
       <div class="row" style="margin-top:10px">
-        <button id="updateSyncBtn" hidden>立即同步</button>
+        <a id="updateSyncBtn" href="/settings" hidden style="display:none;text-decoration:none;background:var(--primary);color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;">去设置同步</a>
         <button id="updateDismissBtn" class="secondary" hidden>稍后</button>
       </div>
-    </section>
-
-    <section class="toolbar panel">
-      <div class="row">
-        <button id="syncQuickBtn">手动同步（每类 1 页）</button>
-        <button id="syncE2Btn" class="secondary">仅同步中后期（1 页）</button>
-        <button id="syncFullBtn" class="secondary">全量同步</button>
-        <button id="syncLinkForceBtn" class="secondary">link 全量重下（强制）</button>
-        <button id="syncE2ForceBtn" class="secondary">e2 全量重下（强制）</button>
-        <button id="refreshStatusBtn" class="secondary">刷新状态</button>
-        <span style="flex:1"></span>
-        <button id="exportDbBtn" class="secondary">导出数据库</button>
-        <button id="exportManifestBtn" class="secondary">导出数据清单</button>
-        <label class="secondary" style="cursor:pointer;padding:8px 12px;border-radius:8px;background:#64748b;color:#fff;font-size:13px;">
-          导入数据库<input id="importDbInput" type="file" accept=".zip,.db" hidden>
-        </label>
-      </div>
-      <label class="filter-option" style="margin-top:8px;display:block;font-size:13px;color:#475569;">
-        <input id="forceFullSync" type="checkbox">
-        全量同步时强制重下（跳过完整性检查，link + e2 同时重下；仅 e2 或 link 请用上方的专用按钮）
-      </label>
-      <div id="syncMessage" class="message"></div>
-      <div id="syncStatusPanel" class="sync-status">
-        <div class="sync-status-head">
-          <span id="syncStatusBadge" class="sync-status-badge">同步中</span>
-          <span id="syncStatusElapsed" class="meta"></span>
-        </div>
-        <div id="syncStatusMessage" class="sync-status-message"></div>
-        <div id="syncStatusDetail" class="sync-status-detail"></div>
-        <div id="syncProgressBar" class="sync-progress-bar" hidden><span></span></div>
-      </div>
-      <div id="dbMessage" class="message"></div>
     </section>
 
     <div class="search-layout">
@@ -205,27 +164,9 @@
             </div>
           </div>
           <div class="filter-group">
-            <h3>年份</h3>
-            <select id="yearFilter" class="filter-select">
-              <option value="">全部年份</option>
-            </select>
-          </div>
-          <div class="filter-group">
             <h3>所属区域</h3>
             <select id="districtFilter" class="filter-select">
               <option value="">全部区域</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <h3>项目阶段</h3>
-            <select id="lifecycleFilter" class="filter-select">
-              <option value="">全部阶段</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <h3>数据来源</h3>
-            <select id="sourceFilter" class="filter-select">
-              <option value="">全部来源</option>
             </select>
           </div>
           <div class="filter-group">
@@ -275,7 +216,7 @@
         <div id="stageRail" class="stage-rail"></div>
         <div class="stage-panel-wrap">
           <div id="stagePanel" class="stage-panel"></div>
-          <div id="downloadStatusMessage" class="meta" style="padding:0 24px 16px;color:#0369a1"></div>
+          <div id="downloadStatusMessage" class="meta" style="padding:0 24px 16px;color:#1e40af"></div>
         </div>
       </div>
     </div>
@@ -303,158 +244,17 @@
     </div>
   </div>
 
+  <script src="/static/common.js"></script>
+  <script src="/static/app.js"></script>
   <script>
+    const authFetch = (...args) => window.ShEiaAuth.authFetch(...args);
+    const apiErrorMessage = (...args) => window.ShEiaAuth.apiErrorMessage(...args);
+    const filenameFromDisposition = (...args) => window.ShEiaAuth.filenameFromDisposition(...args);
+    const saveBlobDownload = (...args) => window.ShEiaAuth.saveBlobDownload(...args);
+
     let progressData = null;
     let activeStageKey = null;
     let captchaState = { fileId: null, sessionId: null };
-    let syncPollTimer = null;
-    let lastSyncRunning = false;
-    let syncPanelActive = false;
-
-    const TYPE_LABELS = {
-      acceptance: "受理信息",
-      proposed_approval: "拟审批公示",
-      approval_decision: "审批决定公告",
-      post_construction: "中后期信息公开",
-    };
-
-    function formatElapsed(seconds) {
-      if (!Number.isFinite(seconds) || seconds < 0) return "";
-      const mins = Math.floor(seconds / 60);
-      const secs = seconds % 60;
-      if (mins >= 60) {
-        const hours = Math.floor(mins / 60);
-        const remMins = mins % 60;
-        return `已运行 ${hours} 小时 ${remMins} 分 ${secs} 秒`;
-      }
-      if (mins > 0) return `已运行 ${mins} 分 ${secs} 秒`;
-      return `已运行 ${secs} 秒`;
-    }
-
-    function summarizeSyncStats(stats) {
-      if (!stats) return "";
-      const parts = [];
-      for (const [key, value] of Object.entries(stats.types || {})) {
-        if (!value || typeof value !== "object") continue;
-        const label = TYPE_LABELS[key] || key;
-        const bits = [`${value.pages || 0} 页`, `${value.events || 0} 条`];
-        if (value.files) bits.push(`${value.files} 个文件`);
-        if (value.details) bits.push(`${value.details} 个详情`);
-        parts.push(`${label} ${bits.join(" / ")}`);
-      }
-      return parts.join("；");
-    }
-
-    function syncProgressPercent(stats) {
-      const current = stats?.current;
-      if (!current?.page || !current?.total_pages) return null;
-      const page = Number(current.page);
-      const total = Number(current.total_pages);
-      if (!Number.isFinite(page) || !Number.isFinite(total) || total <= 0) return null;
-      return Math.max(4, Math.min(100, Math.round((page / total) * 100)));
-    }
-
-    const LINK_SYNC_TYPES = ["acceptance", "proposed_approval", "approval_decision"];
-    const E2_SYNC_TYPES = ["post_construction"];
-
-    function setSyncButtonsDisabled(disabled) {
-      [
-        "syncQuickBtn",
-        "syncE2Btn",
-        "syncFullBtn",
-        "syncLinkForceBtn",
-        "syncE2ForceBtn",
-      ].forEach(id => {
-        document.getElementById(id).disabled = disabled;
-      });
-    }
-
-    function renderSyncStatus(data) {
-      const panel = document.getElementById("syncStatusPanel");
-      const badge = document.getElementById("syncStatusBadge");
-      const elapsedEl = document.getElementById("syncStatusElapsed");
-      const messageEl = document.getElementById("syncStatusMessage");
-      const detailEl = document.getElementById("syncStatusDetail");
-      const progressBar = document.getElementById("syncProgressBar");
-      const progressFill = progressBar.querySelector("span");
-      const latest = data.latest;
-      const running = Boolean(data.running);
-
-      if (running) syncPanelActive = true;
-
-      const headline = running
-        ? `${latest?.message || "同步进行中…"}${latest?.elapsed_seconds != null ? `（${formatElapsed(latest.elapsed_seconds)}）` : ""}`
-        : latest
-          ? `${latest.status === "success" ? "完成" : latest.status === "failed" ? "失败" : latest.status} — ${latest.message || ""}`
-          : "暂无同步记录";
-      document.getElementById("syncMessage").textContent = headline;
-      setSyncButtonsDisabled(running);
-
-      if (!syncPanelActive) {
-        panel.classList.remove("show", "running", "success", "failed");
-        return data;
-      }
-
-      if (!running && !latest) {
-        panel.classList.remove("show", "running", "success", "failed");
-        return data;
-      }
-
-      panel.classList.add("show");
-      panel.classList.toggle("running", running);
-      panel.classList.toggle("success", !running && latest?.status === "success");
-      panel.classList.toggle("failed", !running && latest?.status === "failed");
-
-      if (running) {
-        badge.textContent = "同步进行中";
-      } else if (latest?.status === "success") {
-        badge.textContent = "同步完成";
-      } else if (latest?.status === "failed") {
-        badge.textContent = "同步失败";
-      } else {
-        badge.textContent = latest?.status || "同步状态";
-      }
-
-      elapsedEl.textContent = latest?.elapsed_seconds != null ? formatElapsed(latest.elapsed_seconds) : "";
-      messageEl.textContent = latest?.message || (running ? "同步任务已启动，等待进度…" : "");
-      const summary = summarizeSyncStats(latest?.stats);
-      detailEl.textContent = summary;
-
-      const percent = running ? syncProgressPercent(latest?.stats) : null;
-      if (percent != null) {
-        progressBar.hidden = false;
-        progressFill.style.width = `${percent}%`;
-      } else {
-        progressBar.hidden = true;
-        progressFill.style.width = "0%";
-      }
-
-      return data;
-    }
-
-    function stopSyncPolling() {
-      if (syncPollTimer) {
-        clearInterval(syncPollTimer);
-        syncPollTimer = null;
-      }
-    }
-
-    function startSyncPolling() {
-      stopSyncPolling();
-      syncPollTimer = setInterval(async () => {
-        try {
-          const data = renderSyncStatus(await (await fetch("/api/sync/status", { cache: "no-store" })).json());
-          if (!data.running && lastSyncRunning) {
-            stopSyncPolling();
-            await loadStats();
-            await search();
-          }
-          lastSyncRunning = Boolean(data.running);
-        } catch (err) {
-          console.error("sync status poll failed", err);
-        }
-      }, 2000);
-    }
 
     function selectedTypes() {
       return [...document.querySelectorAll(".typeBox:checked")].map(el => el.value);
@@ -465,14 +265,8 @@
       const q = document.getElementById("query").value.trim();
       if (q) params.set("q", q);
       selectedTypes().forEach(t => params.append("types", t));
-      const year = document.getElementById("yearFilter").value;
       const district = document.getElementById("districtFilter").value;
-      const lifecycle = document.getElementById("lifecycleFilter").value;
-      const source = document.getElementById("sourceFilter").value;
-      if (year) params.set("year", year);
       if (district) params.set("district", district);
-      if (lifecycle) params.set("lifecycle_stage", lifecycle);
-      if (source) params.set("source", source);
       params.set("sort_by", document.getElementById("sortBy").value);
       params.set("sort_order", document.getElementById("sortOrder").value);
       params.set("limit", "80");
@@ -495,43 +289,29 @@
     async function loadFacets() {
       const params = new URLSearchParams();
       selectedTypes().forEach(t => params.append("types", t));
-      const data = await (await fetch(`/api/search/facets?${params}`)).json();
-      fillSelect("yearFilter", data.years, "全部年份");
+      const data = await (await authFetch(`/api/search/facets?${params}`)).json();
       fillSelect("districtFilter", data.districts, "全部区域");
-      fillSelect("lifecycleFilter", data.lifecycle_stages, "全部阶段");
-      fillSelect("sourceFilter", data.sources?.map(s => ({ value: s.value, label: s.label, count: s.count })), "全部来源");
     }
 
     function resetFilters() {
       document.getElementById("query").value = "";
       document.querySelectorAll(".typeBox").forEach(el => { el.checked = true; });
-      document.getElementById("yearFilter").value = "";
       document.getElementById("districtFilter").value = "";
-      document.getElementById("lifecycleFilter").value = "";
-      document.getElementById("sourceFilter").value = "";
       document.getElementById("sortBy").value = "event_date";
       document.getElementById("sortOrder").value = "desc";
       loadFacets().then(search);
     }
 
     async function loadStats() {
-      const data = await (await fetch("/api/stats")).json();
+      const data = await (await authFetch("/api/stats")).json();
       const latest = data.latest_sync;
       const latestText = latest ? `最近同步：${latest.status} — ${latest.message || ""}` : "尚未同步";
       document.getElementById("stats").textContent =
         `项目 ${data.total_masters ?? 0} 个，事件 ${data.total_events ?? 0} 条，文件 ${data.total_files ?? 0} 个。${latestText}`;
     }
 
-    async function refreshSyncStatus() {
-      const data = renderSyncStatus(await (await fetch("/api/sync/status", { cache: "no-store" })).json());
-      lastSyncRunning = Boolean(data.running);
-      if (data.running) startSyncPolling();
-      else stopSyncPolling();
-      return data;
-    }
-
     async function search() {
-      const data = await (await fetch(`/api/search?${filterParams()}`, { cache: "no-store" })).json();
+      const data = await (await authFetch(`/api/search?${filterParams()}`, { cache: "no-store" })).json();
 
       const byCard = new Map();
       function preferCard(next, current) {
@@ -587,7 +367,7 @@
 
     async function openProgress(masterId, episodeKey = "") {
       const params = episodeKey ? `?episode=${encodeURIComponent(episodeKey)}` : "";
-      const res = await fetch(`/api/master/${masterId}/progress${params}`);
+      const res = await authFetch(`/api/master/${masterId}/progress${params}`);
       if (!res.ok) { alert("无法加载项目进展"); return; }
       progressData = await res.json();
       setDownloadStatus("");
@@ -654,28 +434,14 @@
     function setDownloadStatus(message, isError = false) {
       const el = document.getElementById("downloadStatusMessage");
       el.textContent = message || "";
-      el.style.color = isError ? "#b91c1c" : "#0369a1";
+      el.style.color = isError ? "#dc2626" : "#1e40af";
     }
 
     function triggerNativeDownload(url) {
-      const a = document.createElement("a");
-      a.href = url;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-
-    function saveBlobDownload(blob, filename) {
-      const a = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      a.href = url;
-      a.download = filename;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      window.ShEiaAuth.downloadWithAuth(url, "download.bin").catch((err) => {
+        setDownloadStatus(err.message || "下载失败", true);
+        alert(err.message || "下载失败");
+      });
     }
 
     async function triggerBrowserDownload(res, fallbackName) {
@@ -697,7 +463,12 @@
 
     function downloadSingleFile(fileId, buttonEl) {
       setDownloadStatus("已开始下载，请查看浏览器下载栏。大文件可能需要等待较长时间。");
-      triggerNativeDownload(`/api/download/file/${fileId}`);
+      window.ShEiaAuth.downloadWithAuth(`/api/download/file/${fileId}`, `attachment_${fileId}.pdf`)
+        .then(() => setDownloadStatus("下载已完成（或已开始保存）。"))
+        .catch((err) => {
+          setDownloadStatus(err.message || "下载失败", true);
+          alert(err.message || "下载失败");
+        });
       if (buttonEl) {
         const oldText = buttonEl.textContent;
         buttonEl.disabled = true;
@@ -717,7 +488,7 @@
       document.getElementById("captchaInput").value = "";
       document.getElementById("captchaModal").classList.add("show");
       try {
-        const res = await fetch("/api/download/e2/captcha", {
+        const res = await authFetch("/api/download/e2/captcha", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ file_id: fileId }),
@@ -743,25 +514,6 @@
       document.getElementById("captchaInput").value = "";
     }
 
-    function apiErrorMessage(data, fallback = "下载失败") {
-      if (!data || data.detail == null) return fallback;
-      if (typeof data.detail === "string") return data.detail;
-      if (Array.isArray(data.detail)) {
-        return data.detail.map(item => item.msg || item).join("；");
-      }
-      return fallback;
-    }
-
-    function filenameFromDisposition(disp) {
-      if (!disp) return "";
-      const star = disp.match(/filename\*=UTF-8''([^;]+)/i);
-      if (star) {
-        try { return decodeURIComponent(star[1]); } catch (_) { /* ignore */ }
-      }
-      const plain = disp.match(/filename="?([^";]+)"?/i);
-      return plain ? plain[1] : "";
-    }
-
     async function submitCaptcha() {
       const captcha = document.getElementById("captchaInput").value.trim();
       if (!captcha || captchaState.loading) return;
@@ -772,7 +524,7 @@
       }
       document.getElementById("captchaSubmit").disabled = true;
       document.getElementById("captchaMessage").textContent = "正在下载…";
-      const res = await fetch("/api/download/e2/file", {
+      const res = await authFetch("/api/download/e2/file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -821,7 +573,7 @@
       }
       document.getElementById("captchaRefresh").disabled = true;
       try {
-        const res = await fetch(`/api/download/e2/refresh?session_id=${encodeURIComponent(captchaState.sessionId)}`, { method: "POST" });
+        const res = await authFetch(`/api/download/e2/refresh?session_id=${encodeURIComponent(captchaState.sessionId)}`, { method: "POST" });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const msg = apiErrorMessage(data, "刷新验证码失败");
@@ -847,115 +599,30 @@
       }
     }
 
-    async function startSync(fullSync, opts = {}) {
-      document.getElementById("syncMessage").textContent = "提交同步任务…";
-      const force = opts.force ?? (fullSync && document.getElementById("forceFullSync").checked);
-      const res = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sources: opts.sources || ["link_sthj", "e2_qygk"],
-          disclosure_types: opts.types || selectedTypes(),
-          full_sync: fullSync,
-          max_pages: 1,
-          fetch_e2_details: true,
-          force,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        document.getElementById("syncMessage").textContent = data.detail || "失败";
-        return;
-      }
-      document.getElementById("syncMessage").textContent = data.message;
-      syncPanelActive = true;
-      lastSyncRunning = true;
-      startSyncPolling();
-      await refreshSyncStatus();
-    }
-
-    function startForceFullSync(sourceKey) {
-      const configs = {
-        link: {
-          label: "投用前 link.sthj（受理 / 拟审批 / 审批决定）",
-          sources: ["link_sthj"],
-          types: LINK_SYNC_TYPES,
-        },
-        e2: {
-          label: "投用后 e2.sthj（中后期信息公开）",
-          sources: ["e2_qygk"],
-          types: E2_SYNC_TYPES,
-        },
-      };
-      const cfg = configs[sourceKey];
-      if (!cfg) return;
-      if (!confirm(`将强制全量重新下载：${cfg.label}\n\n跳过完整性检查，已有数据也会重新抓取，耗时较长。确定开始？`)) {
-        return;
-      }
-      startSync(true, { sources: cfg.sources, types: cfg.types, force: true });
-    }
-
     document.getElementById("searchBtn").addEventListener("click", search);
     document.getElementById("resetFiltersBtn").addEventListener("click", resetFilters);
     document.getElementById("query").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
     document.querySelectorAll(".typeBox").forEach(b => b.addEventListener("change", () => loadFacets().then(search)));
-    ["yearFilter", "districtFilter", "lifecycleFilter", "sourceFilter", "sortBy", "sortOrder"].forEach(id => {
+    ["districtFilter", "sortBy", "sortOrder"].forEach(id => {
       document.getElementById(id).addEventListener("change", search);
-    });
-    document.getElementById("syncQuickBtn").addEventListener("click", () => startSync(false));
-    document.getElementById("syncE2Btn").addEventListener("click", () => startSync(false, { sources: ["e2_qygk"], types: ["post_construction"] }));
-    document.getElementById("syncFullBtn").addEventListener("click", () => {
-      const force = document.getElementById("forceFullSync").checked;
-      const hint = force
-        ? "将强制重新下载 link + e2 全部数据（跳过完整性检查），耗时很长，确定？"
-        : "全量同步会先检查本地是否完整；已完整则跳过下载。确定开始？";
-      if (confirm(hint)) startSync(true);
-    });
-    document.getElementById("syncLinkForceBtn").addEventListener("click", () => startForceFullSync("link"));
-    document.getElementById("syncE2ForceBtn").addEventListener("click", () => startForceFullSync("e2"));
-    document.getElementById("refreshStatusBtn").addEventListener("click", () => {
-      syncPanelActive = true;
-      refreshSyncStatus();
     });
     document.getElementById("progressClose").addEventListener("click", () => document.getElementById("progressModal").classList.remove("show"));
     document.getElementById("captchaClose").addEventListener("click", () => document.getElementById("captchaModal").classList.remove("show"));
     document.getElementById("captchaSubmit").addEventListener("click", submitCaptcha);
     document.getElementById("captchaRefresh").addEventListener("click", refreshCaptchaImage);
     document.getElementById("captchaInput").addEventListener("keydown", e => { if (e.key === "Enter") submitCaptcha(); });
-    document.getElementById("exportDbBtn").addEventListener("click", async () => {
-      const res = await fetch("/api/database/export");
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "sh_eia_backup.zip";
-      a.click();
-    });
-    document.getElementById("exportManifestBtn").addEventListener("click", async () => {
-      const res = await fetch("/api/manifest?refresh=1");
-      const data = await res.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "sh_eia_manifest.json";
-      a.click();
-      document.getElementById("dbMessage").textContent =
-        `数据清单已导出：${data.stats?.total_masters ?? 0} 个项目，${data.stats?.total_events ?? 0} 条事件，${data.stats?.total_files ?? 0} 个文件。`;
-    });
-    document.getElementById("importDbInput").addEventListener("change", async e => {
-      const file = e.target.files?.[0];
-      if (!file || !confirm(`导入 ${file.name}？`)) return;
-      const form = new FormData();
-      form.append("file", file);
-      await fetch("/api/database/import", { method: "POST", body: form });
-      await loadStats();
-      await search();
-    });
 
-    loadStats();
-    refreshSyncStatus().then(data => {
-      if (data.running) startSyncPolling();
+    let appBooted = false;
+    async function bootApp() {
+      if (appBooted) return;
+      appBooted = true;
+      await loadStats();
+      await loadFacets().then(search);
+    }
+
+    document.addEventListener("sh-eia-auth-ready", () => {
+      bootApp();
     });
-    loadFacets().then(search);
   </script>
 </body>
 </html>

@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 — 上海环评资料检索</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #dbeafe;
+      --primary-soft: #eef2ff;
+      --border: #e5e7eb;
+      --muted: #6b7280;
+      --bg: #f4f6f8;
+      --text: #1f2937;
+      --danger: #dc2626;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff;
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    header > div:first-child { flex: 1; min-width: 240px; }
+    header h1 { margin: 0 0 6px; font-size: 1.4rem; }
+    header p { margin: 0; opacity: .9; font-size: 14px; }
+    .user-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .user-bar-name { font-size: 14px; opacity: .95; }
+    .user-bar-link, .user-bar-btn {
+      color: #fff;
+      text-decoration: none;
+      background: rgba(255,255,255,.16);
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    main { max-width: 960px; margin: 0 auto; padding: 24px; }
+    .panel {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.06);
+    }
+    .panel h2 { margin: 0 0 8px; font-size: 17px; color: var(--primary); }
+    .panel .hint { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button {
+      padding: 10px 14px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    button:hover { background: var(--primary-hover); }
+    /* 轻量操作：描边样式，仍明显可点 */
+    button.outline {
+      background: #fff;
+      color: var(--primary);
+      border-color: #93c5fd;
+    }
+    button.outline:hover { background: var(--primary-soft); border-color: var(--primary); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    button:disabled:hover { background: var(--primary); }
+    button.outline:disabled:hover { background: #fff; }
+    label.file-btn {
+      cursor: pointer;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: var(--primary);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      display: inline-block;
+    }
+    label.file-btn:hover { background: var(--primary-hover); }
+    .filter-option { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #475569; cursor: pointer; }
+    .stats, .meta { color: var(--muted); font-size: 14px; }
+    .message { margin-top: 10px; color: #1e40af; }
+    .message.error, .error { color: var(--danger); }
+    .sync-status {
+      display: none;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+    }
+    .sync-status.show { display: block; }
+    .sync-status.running { border-color: #93c5fd; background: #eff6ff; }
+    .sync-status.success { border-color: #86efac; background: #f0fdf4; }
+    .sync-status.failed { border-color: #fca5a5; background: #fef2f2; }
+    .sync-status-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+    .sync-status-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--primary);
+      color: #fff;
+    }
+    .sync-status.success .sync-status-badge { background: #059669; }
+    .sync-status.failed .sync-status-badge { background: var(--danger); }
+    .sync-status-message { font-size: 15px; color: #1e3a8a; line-height: 1.5; }
+    .sync-status-detail { margin-top: 6px; font-size: 13px; color: var(--muted); }
+    .sync-progress-bar {
+      margin-top: 10px;
+      height: 6px;
+      border-radius: 999px;
+      background: #dbeafe;
+      overflow: hidden;
+    }
+    .sync-progress-bar > span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, #2563eb, #1d4ed8);
+      width: 0%;
+      transition: width .4s ease;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>设置</h1>
+      <p>数据同步、全量重下、导入导出</p>
+    </div>
+    <div id="userBar" class="user-bar" hidden></div>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>数据概况</h2>
+      <div id="stats" class="stats">加载中…</div>
+    </section>
+
+    <section class="panel">
+      <h2>增量同步</h2>
+      <p class="hint">各来源各抓取 1 页，适合日常补新。下列按钮均可点击。</p>
+      <div class="row">
+        <button id="syncQuickBtn" type="button">手动同步（每类 1 页）</button>
+        <button id="syncE2Btn" type="button">仅同步中后期（1 页）</button>
+        <button id="syncFengxianBtn" type="button">同步奉贤区（1 页）</button>
+        <button id="syncMinhangBtn" type="button">同步闵行区（1 页）</button>
+        <button id="syncSongjiangBtn" type="button">同步松江区（1 页）</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>全量同步</h2>
+      <p class="hint">耗时较长。默认会先做完整性检查；勾选强制重下或使用专用按钮可跳过检查。</p>
+      <div class="row">
+        <button id="syncFullBtn" type="button">全量同步</button>
+        <button id="syncLinkForceBtn" type="button">link 全量重下（强制）</button>
+        <button id="syncE2ForceBtn" type="button">e2 全量重下（强制）</button>
+        <button id="syncFengxianFullBtn" type="button">奉贤区全量</button>
+        <button id="syncMinhangFullBtn" type="button">闵行区全量</button>
+        <button id="syncSongjiangFullBtn" type="button">松江区全量</button>
+      </div>
+      <label class="filter-option" style="margin-top:12px">
+        <input id="forceFullSync" type="checkbox">
+        <span>全量同步时强制重下（跳过完整性检查，link + e2 同时重下；仅 e2 或 link 请用上方的专用按钮）</span>
+      </label>
+    </section>
+
+    <section class="panel">
+      <h2>同步状态</h2>
+      <div class="row">
+        <button id="refreshStatusBtn" class="outline" type="button">刷新状态</button>
+      </div>
+      <div id="syncMessage" class="message"></div>
+      <div id="syncStatusPanel" class="sync-status">
+        <div class="sync-status-head">
+          <span id="syncStatusBadge" class="sync-status-badge">同步中</span>
+          <span id="syncStatusElapsed" class="meta"></span>
+        </div>
+        <div id="syncStatusMessage" class="sync-status-message"></div>
+        <div id="syncStatusDetail" class="sync-status-detail"></div>
+        <div id="syncProgressBar" class="sync-progress-bar" hidden><span></span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>数据导入 / 导出</h2>
+      <p class="hint">
+        导出为跨平台 ZIP（内含 <code>eia.db</code> + <code>export_info.json</code>），Windows / Linux 均可互相导入。
+        <strong>默认增量合并</strong>：按公示唯一键汇合多机数据；冲突时保留 <code>synced_at</code> 较新的一方；本地独有数据不会被删除。
+        也支持直接导入本应用导出的 <code>.db</code>。导入前会自动备份当前库。
+      </p>
+      <label class="filter-option" style="margin-bottom:12px">
+        <input id="importReplaceMode" type="checkbox">
+        <span>整库替换（危险：会覆盖本地独有数据，仅在确认要用对方库完全替换时勾选）</span>
+      </label>
+      <div class="row">
+        <button id="exportDbBtn" type="button">导出数据库</button>
+        <button id="exportManifestBtn" type="button">导出数据清单</button>
+        <label class="file-btn">
+          导入数据库<input id="importDbInput" type="file" accept=".zip,.db,application/zip,application/octet-stream" hidden>
+        </label>
+      </div>
+      <div id="dbMessage" class="message"></div>
+    </section>
+  </main>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/app.js"></script>
+  <script>
+    const authFetch = (...args) => window.ShEiaAuth.authFetch(...args);
+    const apiErrorMessage = (...args) => window.ShEiaAuth.apiErrorMessage(...args);
+
+    let syncPollTimer = null;
+    let lastSyncRunning = false;
+    let syncPanelActive = false;
+
+    const ALL_SYNC_TYPES = ["acceptance", "proposed_approval", "approval_decision", "post_construction"];
+    const LINK_SYNC_TYPES = ["acceptance", "proposed_approval", "approval_decision"];
+    const E2_SYNC_TYPES = ["post_construction"];
+    const TYPE_LABELS = {
+      acceptance: "受理信息",
+      proposed_approval: "拟审批公示",
+      approval_decision: "审批决定公告",
+      post_construction: "中后期信息公开",
+    };
+    const SYNC_BUTTON_IDS = [
+      "syncQuickBtn",
+      "syncE2Btn",
+      "syncFengxianBtn",
+      "syncMinhangBtn",
+      "syncSongjiangBtn",
+      "syncFullBtn",
+      "syncLinkForceBtn",
+      "syncE2ForceBtn",
+      "syncFengxianFullBtn",
+      "syncMinhangFullBtn",
+      "syncSongjiangFullBtn",
+    ];
+
+    function formatElapsed(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return "";
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      if (mins >= 60) {
+        const hours = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        return `已运行 ${hours} 小时 ${remMins} 分 ${secs} 秒`;
+      }
+      if (mins > 0) return `已运行 ${mins} 分 ${secs} 秒`;
+      return `已运行 ${secs} 秒`;
+    }
+
+    function summarizeSyncStats(stats) {
+      if (!stats) return "";
+      const parts = [];
+      for (const [key, value] of Object.entries(stats.types || {})) {
+        if (!value || typeof value !== "object") continue;
+        const label = TYPE_LABELS[key] || key;
+        const bits = [`${value.pages || 0} 页`, `${value.events || 0} 条`];
+        if (value.files) bits.push(`${value.files} 个文件`);
+        if (value.details) bits.push(`${value.details} 个详情`);
+        parts.push(`${label} ${bits.join(" / ")}`);
+      }
+      return parts.join("；");
+    }
+
+    function syncProgressPercent(stats) {
+      const current = stats?.current;
+      if (!current?.page || !current?.total_pages) return null;
+      const page = Number(current.page);
+      const total = Number(current.total_pages);
+      if (!Number.isFinite(page) || !Number.isFinite(total) || total <= 0) return null;
+      return Math.max(4, Math.min(100, Math.round((page / total) * 100)));
+    }
+
+    function setSyncButtonsDisabled(disabled) {
+      SYNC_BUTTON_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+      });
+    }
+
+    function renderSyncStatus(data) {
+      const panel = document.getElementById("syncStatusPanel");
+      const badge = document.getElementById("syncStatusBadge");
+      const elapsedEl = document.getElementById("syncStatusElapsed");
+      const messageEl = document.getElementById("syncStatusMessage");
+      const detailEl = document.getElementById("syncStatusDetail");
+      const progressBar = document.getElementById("syncProgressBar");
+      const progressFill = progressBar.querySelector("span");
+      const latest = data.latest;
+      const running = Boolean(data.running);
+
+      if (running) syncPanelActive = true;
+
+      const headline = running
+        ? `${latest?.message || "同步进行中…"}${latest?.elapsed_seconds != null ? `（${formatElapsed(latest.elapsed_seconds)}）` : ""}`
+        : latest
+          ? `${latest.status === "success" ? "完成" : latest.status === "failed" ? "失败" : latest.status} — ${latest.message || ""}`
+          : "暂无同步记录";
+      document.getElementById("syncMessage").textContent = headline;
+      setSyncButtonsDisabled(running);
+
+      if (!syncPanelActive) {
+        panel.classList.remove("show", "running", "success", "failed");
+        return data;
+      }
+
+      if (!running && !latest) {
+        panel.classList.remove("show", "running", "success", "failed");
+        return data;
+      }
+
+      panel.classList.add("show");
+      panel.classList.toggle("running", running);
+      panel.classList.toggle("success", !running && latest?.status === "success");
+      panel.classList.toggle("failed", !running && latest?.status === "failed");
+
+      if (running) badge.textContent = "同步进行中";
+      else if (latest?.status === "success") badge.textContent = "同步完成";
+      else if (latest?.status === "failed") badge.textContent = "同步失败";
+      else badge.textContent = latest?.status || "同步状态";
+
+      elapsedEl.textContent = latest?.elapsed_seconds != null ? formatElapsed(latest.elapsed_seconds) : "";
+      messageEl.textContent = latest?.message || (running ? "同步任务已启动，等待进度…" : "");
+      detailEl.textContent = summarizeSyncStats(latest?.stats);
+
+      const percent = running ? syncProgressPercent(latest?.stats) : null;
+      if (percent != null) {
+        progressBar.hidden = false;
+        progressFill.style.width = `${percent}%`;
+      } else {
+        progressBar.hidden = true;
+        progressFill.style.width = "0%";
+      }
+      return data;
+    }
+
+    function stopSyncPolling() {
+      if (syncPollTimer) {
+        clearInterval(syncPollTimer);
+        syncPollTimer = null;
+      }
+    }
+
+    function startSyncPolling() {
+      stopSyncPolling();
+      syncPollTimer = setInterval(async () => {
+        try {
+          const data = renderSyncStatus(await (await authFetch("/api/sync/status", { cache: "no-store" })).json());
+          if (!data.running && lastSyncRunning) {
+            stopSyncPolling();
+            await loadStats();
+          }
+          lastSyncRunning = Boolean(data.running);
+        } catch (err) {
+          console.error("sync status poll failed", err);
+        }
+      }, 2000);
+    }
+
+    async function loadStats() {
+      const data = await (await authFetch("/api/stats")).json();
+      const latest = data.latest_sync;
+      const latestText = latest ? `最近同步：${latest.status} — ${latest.message || ""}` : "尚未同步";
+      document.getElementById("stats").textContent =
+        `项目 ${data.total_masters ?? 0} 个，事件 ${data.total_events ?? 0} 条，文件 ${data.total_files ?? 0} 个。${latestText}`;
+    }
+
+    async function refreshSyncStatus() {
+      const data = renderSyncStatus(await (await authFetch("/api/sync/status", { cache: "no-store" })).json());
+      lastSyncRunning = Boolean(data.running);
+      if (data.running) startSyncPolling();
+      else stopSyncPolling();
+      return data;
+    }
+
+    async function startSync(fullSync, opts = {}) {
+      const msg = document.getElementById("syncMessage");
+      msg.textContent = "提交同步任务…";
+      msg.classList.remove("error");
+      try {
+        const force = opts.force ?? (fullSync && document.getElementById("forceFullSync").checked);
+        const res = await authFetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sources: opts.sources || ["link_sthj", "e2_qygk"],
+            disclosure_types: opts.types || ALL_SYNC_TYPES,
+            full_sync: fullSync,
+            max_pages: 1,
+            fetch_e2_details: true,
+            force,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          msg.classList.add("error");
+          msg.textContent = apiErrorMessage(data, "同步失败");
+          return;
+        }
+        msg.textContent = data.message;
+        syncPanelActive = true;
+        lastSyncRunning = true;
+        startSyncPolling();
+        await refreshSyncStatus();
+      } catch (err) {
+        msg.classList.add("error");
+        msg.textContent = err.message || "同步失败";
+      }
+    }
+
+    function startForceFullSync(sourceKey) {
+      const configs = {
+        link: {
+          label: "投用前 link.sthj（受理 / 拟审批 / 审批决定）",
+          sources: ["link_sthj"],
+          types: LINK_SYNC_TYPES,
+        },
+        e2: {
+          label: "投用后 e2.sthj（中后期信息公开）",
+          sources: ["e2_qygk"],
+          types: E2_SYNC_TYPES,
+        },
+        fengxian: {
+          label: "奉贤区环评公示（受理 / 拟审批 / 审批决定）",
+          sources: ["district_fengxian"],
+          types: LINK_SYNC_TYPES,
+        },
+        minhang: {
+          label: "闵行区环评公示（受理 / 拟审批 / 审批决定，约 1200+ 页）",
+          sources: ["district_minhang"],
+          types: LINK_SYNC_TYPES,
+        },
+        songjiang: {
+          label: "松江区环评项目公告（审批决定，接口较慢）",
+          sources: ["district_songjiang"],
+          types: ["approval_decision"],
+        },
+      };
+      const cfg = configs[sourceKey];
+      if (!cfg) return;
+      if (!confirm(`将强制全量重新下载：${cfg.label}\n\n跳过完整性检查，已有数据也会重新抓取，耗时较长。确定开始？`)) {
+        return;
+      }
+      startSync(true, { sources: cfg.sources, types: cfg.types, force: true });
+    }
+
+    document.getElementById("syncQuickBtn").addEventListener("click", () => startSync(false));
+    document.getElementById("syncE2Btn").addEventListener("click", () => startSync(false, {
+      sources: ["e2_qygk"],
+      types: ["post_construction"],
+    }));
+    document.getElementById("syncFengxianBtn").addEventListener("click", () => startSync(false, {
+      sources: ["district_fengxian"],
+      types: LINK_SYNC_TYPES,
+    }));
+    document.getElementById("syncMinhangBtn").addEventListener("click", () => startSync(false, {
+      sources: ["district_minhang"],
+      types: LINK_SYNC_TYPES,
+    }));
+    document.getElementById("syncSongjiangBtn").addEventListener("click", () => startSync(false, {
+      sources: ["district_songjiang"],
+      types: ["approval_decision"],
+    }));
+    document.getElementById("syncFullBtn").addEventListener("click", () => {
+      const force = document.getElementById("forceFullSync").checked;
+      const hint = force
+        ? "将强制重新下载 link + e2 全部数据（跳过完整性检查），耗时很长，确定？"
+        : "全量同步会先检查本地是否完整；已完整则跳过下载。确定开始？";
+      if (confirm(hint)) startSync(true);
+    });
+    document.getElementById("syncLinkForceBtn").addEventListener("click", () => startForceFullSync("link"));
+    document.getElementById("syncE2ForceBtn").addEventListener("click", () => startForceFullSync("e2"));
+    document.getElementById("syncFengxianFullBtn").addEventListener("click", () => startForceFullSync("fengxian"));
+    document.getElementById("syncMinhangFullBtn").addEventListener("click", () => startForceFullSync("minhang"));
+    document.getElementById("syncSongjiangFullBtn").addEventListener("click", () => startForceFullSync("songjiang"));
+    document.getElementById("refreshStatusBtn").addEventListener("click", () => {
+      syncPanelActive = true;
+      refreshSyncStatus();
+    });
+
+    document.getElementById("exportDbBtn").addEventListener("click", () => {
+      const msg = document.getElementById("dbMessage");
+      const btn = document.getElementById("exportDbBtn");
+      msg.textContent = "正在准备导出数据库（约需数十秒，请查看浏览器下载栏）…";
+      msg.classList.remove("error");
+      btn.disabled = true;
+      // 走 Cookie 鉴权的浏览器原生下载，避免 fetch+blob 把百兆文件塞进内存导致卡住
+      const a = document.createElement("a");
+      a.href = "/api/database/export";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => {
+        btn.disabled = false;
+        msg.textContent = "导出请求已提交；若未开始下载，请确认已登录且弹窗/下载未被拦截。";
+      }, 1500);
+    });
+    document.getElementById("exportManifestBtn").addEventListener("click", async () => {
+      const msg = document.getElementById("dbMessage");
+      const btn = document.getElementById("exportManifestBtn");
+      msg.textContent = "正在导出数据清单…";
+      msg.classList.remove("error");
+      btn.disabled = true;
+      try {
+        const res = await authFetch("/api/manifest?refresh=1");
+        const data = await res.json();
+        if (!res.ok) {
+          msg.classList.add("error");
+          msg.textContent = apiErrorMessage(data, "导出清单失败");
+          alert(msg.textContent);
+          return;
+        }
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        window.ShEiaAuth.saveBlobDownload(blob, "sh_eia_manifest.json");
+        msg.textContent =
+          `数据清单已导出：${data.stats?.total_masters ?? 0} 个项目，${data.stats?.total_events ?? 0} 条事件，${data.stats?.total_files ?? 0} 个文件。`;
+      } catch (err) {
+        msg.classList.add("error");
+        msg.textContent = err.message || "导出清单失败";
+        alert(msg.textContent);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    document.getElementById("importDbInput").addEventListener("change", async e => {
+      const file = e.target.files?.[0];
+      const msg = document.getElementById("dbMessage");
+      const replaceMode = document.getElementById("importReplaceMode").checked;
+      if (!file) {
+        e.target.value = "";
+        return;
+      }
+      if (replaceMode) {
+        if (!confirm(`整库替换导入 ${file.name}？\n\n本地独有数据将被覆盖（导入前会自动备份）。确定继续？`)) {
+          e.target.value = "";
+          return;
+        }
+      } else if (!confirm(`增量合并导入 ${file.name}？\n\n将写入本地没有的公示；冲突时保留较新的 synced_at。`)) {
+        e.target.value = "";
+        return;
+      }
+      const mode = replaceMode ? "replace" : "merge";
+      msg.textContent = replaceMode ? `正在整库替换导入 ${file.name}…` : `正在增量合并 ${file.name}…`;
+      msg.classList.remove("error");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("mode", mode);
+      try {
+        const res = await authFetch("/api/database/import", { method: "POST", body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          msg.classList.add("error");
+          msg.textContent = apiErrorMessage(data, "导入失败");
+          alert(msg.textContent);
+          return;
+        }
+        if (mode === "merge") {
+          msg.textContent =
+            data.message
+            || `增量合并完成：扫描 ${data.scanned ?? 0}，新增 ${data.inserted ?? 0}，更新 ${data.updated ?? 0}，跳过较旧 ${data.skipped_older ?? 0}。`;
+        } else {
+          msg.textContent = data.message || "数据库已整库替换导入。";
+        }
+        await loadStats();
+        await refreshSyncStatus();
+      } catch (err) {
+        msg.classList.add("error");
+        msg.textContent = err.message || "导入失败";
+        alert(msg.textContent);
+      } finally {
+        e.target.value = "";
+      }
+    });
+
+    let appBooted = false;
+    async function bootApp() {
+      if (appBooted) return;
+      appBooted = true;
+      await loadStats();
+      const data = await refreshSyncStatus();
+      if (data.running) startSyncPolling();
+    }
+
+    document.addEventListener("sh-eia-auth-ready", () => {
+      bootApp();
+    });
+  </script>
+</body>
+</html>

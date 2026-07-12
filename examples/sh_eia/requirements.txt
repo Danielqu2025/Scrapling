@@ -1,0 +1,3 @@
+# Production / public deployment dependencies for sh_eia web app.
+# Install: pip install -r requirements.txt
+-r requirements-app.txt

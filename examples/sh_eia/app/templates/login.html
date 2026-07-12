@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 — 上海环评资料检索</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --accent: #3b82f6;
+      --bg-top: #1e3a8a;
+      --bg-mid: #2563eb;
+      --bg-bottom: #eff6ff;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --danger: #dc2626;
+      --ok: #047857;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 0%, rgba(37, 99, 235, 0.35), transparent),
+        linear-gradient(165deg, var(--bg-top) 0%, var(--bg-mid) 38%, var(--bg-bottom) 100%);
+      color: #1f2937;
+      padding: 24px;
+    }
+    .shell {
+      width: min(420px, 100%);
+    }
+    .brand {
+      text-align: center;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+    .brand h1 {
+      margin: 0 0 8px;
+      font-size: 1.55rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+    .brand p {
+      margin: 0;
+      opacity: 0.9;
+      font-size: 0.95rem;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 28px 26px 24px;
+      box-shadow: 0 18px 50px rgba(30, 58, 138, 0.22);
+    }
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: #eef2ff;
+      padding: 4px;
+      border-radius: 10px;
+      margin-bottom: 22px;
+    }
+    .tabs button {
+      border: 0;
+      background: transparent;
+      padding: 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .tabs button.active {
+      background: #fff;
+      color: var(--primary);
+      box-shadow: 0 1px 4px rgba(37, 99, 235, 0.12);
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #475569;
+      margin: 0 0 6px;
+      font-weight: 600;
+    }
+    .field { margin-bottom: 14px; }
+    .password-wrap { position: relative; }
+    input {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    .toggle-pass {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 4px 8px;
+    }
+    .password-wrap input { padding-right: 64px; }
+    .submit {
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px;
+      border: 0;
+      border-radius: 9px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .submit:hover { background: var(--primary-dark); }
+    .submit:disabled { opacity: .65; cursor: not-allowed; }
+    .msg {
+      margin-top: 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      min-height: 1.2em;
+    }
+    .msg.error { color: var(--danger); }
+    .msg.ok { color: var(--ok); }
+    .hint {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="brand">
+      <h1>上海环评资料检索</h1>
+      <p>团队账号登录 · 审批制注册</p>
+    </div>
+    <div class="card">
+      <div class="tabs">
+        <button type="button" id="tabLogin" class="active">登录</button>
+        <button type="button" id="tabRegister">申请注册</button>
+      </div>
+
+      <form id="loginForm" class="panel active" autocomplete="on">
+        <div class="field">
+          <label for="loginUsername">用户名</label>
+          <input id="loginUsername" name="username" required maxlength="32" autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="loginPassword">密码</label>
+          <div class="password-wrap">
+            <input id="loginPassword" name="password" type="password" required maxlength="128" autocomplete="current-password">
+            <button type="button" class="toggle-pass" data-target="loginPassword">显示</button>
+          </div>
+        </div>
+        <button class="submit" type="submit">登录</button>
+      </form>
+
+      <form id="registerForm" class="panel" autocomplete="on">
+        <div class="field">
+          <label for="regUsername">用户名</label>
+          <input id="regUsername" required maxlength="32" autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="regDisplayName">显示名称（可选）</label>
+          <input id="regDisplayName" maxlength="64" autocomplete="nickname">
+        </div>
+        <div class="field">
+          <label for="regPassword">密码（至少 8 位）</label>
+          <div class="password-wrap">
+            <input id="regPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password">
+            <button type="button" class="toggle-pass" data-target="regPassword">显示</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="regPassword2">确认密码</label>
+          <div class="password-wrap">
+            <input id="regPassword2" type="password" required minlength="8" maxlength="128" autocomplete="new-password">
+            <button type="button" class="toggle-pass" data-target="regPassword2">显示</button>
+          </div>
+        </div>
+        <button class="submit" type="submit">提交申请</button>
+      </form>
+
+      <div id="msg" class="msg"></div>
+      <div class="hint">注册后需管理员审批方可登录</div>
+    </div>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    const auth = window.ShEiaAuth;
+    const params = new URLSearchParams(location.search);
+    const nextUrl = params.get("next") || "/";
+
+    function setMsg(text, kind) {
+      const el = document.getElementById("msg");
+      el.textContent = text || "";
+      el.className = "msg" + (kind ? " " + kind : "");
+    }
+
+    function showPanel(name) {
+      document.getElementById("loginForm").classList.toggle("active", name === "login");
+      document.getElementById("registerForm").classList.toggle("active", name === "register");
+      document.getElementById("tabLogin").classList.toggle("active", name === "login");
+      document.getElementById("tabRegister").classList.toggle("active", name === "register");
+      setMsg("");
+    }
+
+    document.getElementById("tabLogin").addEventListener("click", () => showPanel("login"));
+    document.getElementById("tabRegister").addEventListener("click", () => showPanel("register"));
+
+    document.querySelectorAll(".toggle-pass").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const input = document.getElementById(btn.dataset.target);
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.textContent = show ? "隐藏" : "显示";
+      });
+    });
+
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      setMsg("正在登录…");
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("loginUsername").value.trim(),
+          password: document.getElementById("loginPassword").value,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(auth.apiErrorMessage(data, "登录失败"), "error");
+        return;
+      }
+      auth.setAuth(data.access_token, data.user);
+      setMsg("登录成功，正在跳转…", "ok");
+      location.href = nextUrl.startsWith("/") ? nextUrl : "/";
+    });
+
+    document.getElementById("registerForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const password = document.getElementById("regPassword").value;
+      const password2 = document.getElementById("regPassword2").value;
+      if (password !== password2) {
+        setMsg("两次输入的密码不一致", "error");
+        return;
+      }
+      setMsg("正在提交申请…");
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("regUsername").value.trim(),
+          display_name: document.getElementById("regDisplayName").value.trim(),
+          password,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(auth.apiErrorMessage(data, "注册失败"), "error");
+        return;
+      }
+      setMsg(data.message || "申请已提交，请等待审批", "ok");
+      showPanel("login");
+    });
+
+    (async () => {
+      const cfg = await auth.fetchAuthConfig();
+      if (!cfg.auth_enabled) {
+        setMsg("当前未开启认证，正在进入系统…", "ok");
+        location.href = "/";
+        return;
+      }
+      if (auth.getToken()) {
+        const res = await auth.authFetch("/api/auth/me").catch(() => null);
+        if (res && res.ok) {
+          location.href = nextUrl.startsWith("/") ? nextUrl : "/";
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

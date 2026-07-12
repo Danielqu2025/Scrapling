@@ -46,11 +46,12 @@ python 04_run_server.py
 
 ### 主要功能
 
-- **搜索**：项目名称、建设单位、批文号；左侧面板筛选年份、区域、阶段、来源
+- **搜索**：项目名称、建设单位、批文号；左侧面板筛选公示类型、区域
 - **环评轮次**：同一项目名若有不同批文（如 2023 初评 / 2026 变更），结果中分别显示；进展弹窗按轮次过滤
+- **设置页**（`/settings`）：增量/全量同步、区级同步、数据库导入导出；右上角「设置」进入
 - **全量同步**：先检查本地是否完整，完整则跳过下载；仅 e2 不全时只重下 e2
-- **强制全量重下**：勾选工具栏「强制全量重下」后点全量同步，跳过检查、link + e2 全部重抓
-- **导出/导入数据库**：页面顶部导出 ZIP 或导入同事备份
+- **强制全量重下**：在设置页勾选「强制全量重下」后点全量同步，跳过检查、link + e2 全部重抓
+- **导出/导入数据库**：设置页导出跨平台 ZIP（`eia.db` + `export_info.json`），Windows / Linux 可互相导入；**默认增量合并**（按公示唯一键汇合，冲突保留较新 `synced_at`），可选整库替换
 
 ### 全量同步与完整性检查
 
@@ -72,12 +73,17 @@ API：`GET /api/sync/completeness` 可单独查看检查报告。
 | `SH_EIA_SYNC_MAX_PAGES` | `1` | 定时任务每类页数；`all` 为全量 |
 | `SH_EIA_STARTUP_CHECK` | `1` | 启动时检查官网是否有新公示 |
 | `SH_EIA_STARTUP_CHECK_MODE` | `remind` | `remind` / `auto` / `off` |
+| `SH_EIA_AUTH_ENABLED` | `0` | 公网设为 `1` 开启登录与审批制 |
+| `SH_EIA_JWT_SECRET` | （空） | 认证开启时必填的 JWT 密钥 |
+| `SH_EIA_ADMIN_USERNAME` | （空） | 启动时引导创建/更新管理员 |
+| `SH_EIA_ADMIN_PASSWORD` | （空） | 管理员密码 |
 
 ### 数据文件
 
 | 路径 | 内容 |
 |------|------|
 | `data/eia.db` | SQLite（项目主档 + 事件 + 附件索引） |
+| `data/auth.db` | 用户账号与审计日志（与业务库分离） |
 | `data/manifest.json` | 同步成功后写入的数据清单 |
 | `data/downloads/` | 可选下载缓存 |
 
@@ -100,7 +106,14 @@ python 05_explore_e2_list.py    # e2 列表探路
 examples/sh_eia/
 ├── app/
 │   ├── main.py              # FastAPI：搜索、同步、下载、导入导出
-│   └── static/index.html    # Web 界面
+│   ├── auth.py              # JWT 认证与用户库
+│   ├── admin.py             # 审批制用户管理
+│   ├── security.py          # 安全头与限流
+│   ├── static/              # Web 界面与前端认证脚本
+│   └── templates/           # 登录 / 管理页
+├── deploy/                  # 公网 Nginx 配置
+├── DEPLOY-PUBLIC.md         # Ubuntu + Cloudflare 部署指南
+├── run.sh / run.ps1         # 加载 .env 启动
 ├── db/
 │   ├── store.py             # SQLite 存储与搜索
 │   ├── resolver.py          # 项目归并（不同批文号分列）
@@ -170,10 +183,10 @@ python ..\package_app.py init sh_eia --title "上海环评资料检索" --exe Sh
 
 | 场景 | 建议 |
 |------|------|
-| 3~10 人内网 | 一台主机运行 `04_run_server.py` 或便携版 exe |
-| 权限控制 | 前置 Nginx + SSO |
+| 3~10 人内网 | 一台主机运行 `04_run_server.py` / `run.ps1` 或便携版 exe（默认无需登录） |
+| 公网（Cloudflare 域名） | 见 [DEPLOY-PUBLIC.md](DEPLOY-PUBLIC.md)：Nginx + JWT 认证 + 审批制 |
 | 长期更新 | `SH_EIA_SYNC_HOURS=24` + 服务器常驻 |
-| 数据共享 | A 全量同步 → 导出数据库 → B 导入 |
+| 数据共享 | A 全量同步 → 导出数据库 → B 导入（不影响 `auth.db`） |
 
 ---
 

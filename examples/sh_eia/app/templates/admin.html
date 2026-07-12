@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户管理 — 上海环评资料检索</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eef2ff;
+      --border: #e5e7eb;
+      --muted: #6b7280;
+      --bg: #f4f6f8;
+      --text: #1f2937;
+      --danger: #dc2626;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff;
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    header h1 { margin: 0; font-size: 1.35rem; }
+    header a, header button {
+      color: #fff;
+      text-decoration: none;
+      background: rgba(255,255,255,.16);
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .stat {
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    }
+    .stat .n { font-size: 1.6rem; font-weight: 700; color: var(--primary); }
+    .stat .l { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .panel {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    }
+    .panel h2 { margin: 0 0 14px; font-size: 1.1rem; color: var(--primary); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: none; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .badge.pending { background: #fff7ed; color: #9a3412; }
+    .badge.disabled { background: #f1f5f9; color: #64748b; }
+    .badge.active { background: #ecfdf5; color: #047857; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .actions button {
+      border: 0;
+      border-radius: 7px;
+      padding: 6px 10px;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+      font-size: 12px;
+    }
+    .actions button:hover { background: var(--primary-hover); }
+    .actions button.secondary { background: var(--primary-soft); color: #1e3a8a; }
+    .actions button.danger { background: #fee2e2; color: var(--danger); }
+    .msg { color: #1e40af; margin-bottom: 12px; font-size: 14px; }
+    .msg.error { color: var(--danger); }
+    .empty { color: var(--muted); padding: 12px 0; }
+    .audit-detail { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>用户管理</h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span id="adminName"></span>
+      <a href="/">返回检索</a>
+      <a href="/settings">设置</a>
+      <button type="button" id="changePasswordBtn">修改密码</button>
+      <button type="button" id="logoutBtn">退出</button>
+    </div>
+  </header>
+  <main>
+    <div id="msg" class="msg"></div>
+    <section class="stats" id="stats"></section>
+
+    <section class="panel">
+      <h2>待审批用户</h2>
+      <div id="pendingBox"></div>
+    </section>
+
+    <section class="panel">
+      <h2>全部用户</h2>
+      <div id="usersBox"></div>
+    </section>
+
+    <section class="panel">
+      <h2>审计日志</h2>
+      <div id="auditBox"></div>
+    </section>
+  </main>
+
+  <script src="/static/common.js"></script>
+  <script>
+    const auth = window.ShEiaAuth;
+
+    function setMsg(text, isError) {
+      const el = document.getElementById("msg");
+      el.textContent = text || "";
+      el.className = "msg" + (isError ? " error" : "");
+    }
+
+    function statusBadge(status) {
+      return `<span class="badge ${status}">${status}</span>`;
+    }
+
+    async function loadStats() {
+      const res = await auth.authFetch("/api/admin/stats");
+      const data = await res.json();
+      if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+      const s = data.users_by_status || {};
+      document.getElementById("stats").innerHTML = `
+        <div class="stat"><div class="n">${data.users_total ?? 0}</div><div class="l">用户总数</div></div>
+        <div class="stat"><div class="n">${s.pending ?? 0}</div><div class="l">待审批</div></div>
+        <div class="stat"><div class="n">${s.active ?? 0}</div><div class="l">已激活</div></div>
+        <div class="stat"><div class="n">${s.disabled ?? 0}</div><div class="l">已停用</div></div>
+        <div class="stat"><div class="n">${data.admins ?? 0}</div><div class="l">管理员</div></div>
+      `;
+    }
+
+    function userActions(user) {
+      const buttons = [];
+      if (user.status === "pending") {
+        buttons.push(`<button data-act="approve" data-id="${user.id}">批准</button>`);
+        buttons.push(`<button class="danger" data-act="disable" data-id="${user.id}">拒绝/停用</button>`);
+      } else if (user.status === "active") {
+        buttons.push(`<button class="danger" data-act="disable" data-id="${user.id}">停用</button>`);
+      } else if (user.status === "disabled") {
+        buttons.push(`<button data-act="activate" data-id="${user.id}">激活</button>`);
+      }
+      buttons.push(`<button class="secondary" data-act="reset" data-id="${user.id}">重置密码</button>`);
+      return `<div class="actions">${buttons.join("")}</div>`;
+    }
+
+    function renderUsers(containerId, users, emptyText) {
+      const box = document.getElementById(containerId);
+      if (!users.length) {
+        box.innerHTML = `<div class="empty">${emptyText}</div>`;
+        return;
+      }
+      box.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>用户</th>
+              <th>角色</th>
+              <th>状态</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${users.map((u) => `
+              <tr>
+                <td>
+                  <strong>${u.display_name || u.username}</strong>
+                  <div class="audit-detail">@${u.username} · #${u.id}</div>
+                </td>
+                <td>${u.role}</td>
+                <td>${statusBadge(u.status)}</td>
+                <td>${u.created_at || ""}</td>
+                <td>${userActions(u)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+      box.querySelectorAll("button[data-act]").forEach((btn) => {
+        btn.addEventListener("click", () => handleAction(btn.dataset.act, Number(btn.dataset.id)));
+      });
+    }
+
+    async function loadUsers() {
+      const [pendingRes, allRes] = await Promise.all([
+        auth.authFetch("/api/admin/users/pending"),
+        auth.authFetch("/api/admin/users"),
+      ]);
+      const pending = await pendingRes.json();
+      const all = await allRes.json();
+      if (!pendingRes.ok) throw new Error(auth.apiErrorMessage(pending));
+      if (!allRes.ok) throw new Error(auth.apiErrorMessage(all));
+      renderUsers("pendingBox", pending.users || [], "暂无待审批用户");
+      renderUsers("usersBox", all.users || [], "暂无用户");
+    }
+
+    async function loadAudit() {
+      const res = await auth.authFetch("/api/admin/audit?limit=80");
+      const data = await res.json();
+      if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+      const logs = data.logs || [];
+      const box = document.getElementById("auditBox");
+      if (!logs.length) {
+        box.innerHTML = `<div class="empty">暂无审计记录</div>`;
+        return;
+      }
+      box.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th><th>详情</th></tr>
+          </thead>
+          <tbody>
+            ${logs.map((l) => `
+              <tr>
+                <td>${l.created_at || ""}</td>
+                <td>${l.actor_username || "-"}</td>
+                <td>${l.action}</td>
+                <td>${l.target || ""}</td>
+                <td class="audit-detail">${l.detail || ""}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function handleAction(act, userId) {
+      try {
+        if (act === "reset") {
+          const pwd = prompt("请输入新密码（至少 8 位）");
+          if (!pwd) return;
+          const res = await auth.authFetch(`/api/admin/users/${userId}/reset-password`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ new_password: pwd }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+          setMsg("密码已重置");
+        } else {
+          const path =
+            act === "approve" ? "approve" :
+            act === "activate" ? "activate" : "disable";
+          const res = await auth.authFetch(`/api/admin/users/${userId}/${path}`, { method: "POST" });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+          setMsg("操作成功");
+        }
+        await refreshAll();
+      } catch (err) {
+        setMsg(err.message || "操作失败", true);
+      }
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadStats(), loadUsers(), loadAudit()]);
+    }
+
+    document.getElementById("changePasswordBtn").addEventListener("click", () => {
+      auth.openChangePasswordModal();
+    });
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      auth.clearAuth();
+      location.href = "/login";
+    });
+
+    (async () => {
+      const cfg = await auth.fetchAuthConfig();
+      if (!cfg.auth_enabled) {
+        setMsg("当前未开启认证；管理页仅在生产认证模式下使用。", true);
+        return;
+      }
+      if (!auth.getToken()) {
+        auth.redirectToLogin();
+        return;
+      }
+      const meRes = await auth.authFetch("/api/auth/me");
+      const me = await meRes.json().catch(() => ({}));
+      if (!meRes.ok || me.user?.role !== "admin") {
+        setMsg("需要管理员权限", true);
+        setTimeout(() => { location.href = "/"; }, 1200);
+        return;
+      }
+      document.getElementById("adminName").textContent =
+        me.user.display_name || me.user.username;
+      try {
+        await refreshAll();
+      } catch (err) {
+        setMsg(err.message || "加载失败", true);
+      }
+    })();
+  </script>
+</body>
+</html>
