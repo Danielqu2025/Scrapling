@@ -34,6 +34,7 @@ from sources.types import (
     DISCLOSURE_TYPES,
     SOURCE_DISTRICT_FENGXIAN,
     SOURCE_DISTRICT_MINHANG,
+    SOURCE_DISTRICT_PUDONG,
     SOURCE_DISTRICT_SONGJIANG,
     SOURCE_E2_QYGK,
     SOURCE_LINK_STHJ,
@@ -438,6 +439,7 @@ def api_search(
         SOURCE_E2_QYGK,
         SOURCE_DISTRICT_FENGXIAN,
         SOURCE_DISTRICT_MINHANG,
+        SOURCE_DISTRICT_PUDONG,
         SOURCE_DISTRICT_SONGJIANG,
     }:
         raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
@@ -588,6 +590,7 @@ def api_sync(request: SyncRequest, background_tasks: BackgroundTasks) -> dict[st
             SOURCE_E2_QYGK,
             SOURCE_DISTRICT_FENGXIAN,
             SOURCE_DISTRICT_MINHANG,
+            SOURCE_DISTRICT_PUDONG,
             SOURCE_DISTRICT_SONGJIANG,
         }:
             raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
@@ -609,6 +612,8 @@ def api_sync(request: SyncRequest, background_tasks: BackgroundTasks) -> dict[st
         source_labels.append("闵行区")
     if SOURCE_DISTRICT_SONGJIANG in request.sources:
         source_labels.append("松江区")
+    if SOURCE_DISTRICT_PUDONG in request.sources:
+        source_labels.append("浦东新区")
     scope = "、".join(source_labels) if source_labels else "全部来源"
     force_hint = "，强制重下" if request.force else ""
     background_tasks.add_task(
@@ -648,6 +653,7 @@ def api_sync_completeness(
             SOURCE_E2_QYGK,
             SOURCE_DISTRICT_FENGXIAN,
             SOURCE_DISTRICT_MINHANG,
+            SOURCE_DISTRICT_PUDONG,
             SOURCE_DISTRICT_SONGJIANG,
         }:
             raise HTTPException(status_code=400, detail=f"Unknown source: {source}")

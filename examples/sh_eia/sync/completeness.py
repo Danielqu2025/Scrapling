@@ -11,11 +11,13 @@ from sources.types import (
     DISCLOSURE_TYPES,
     DISTRICT_FENGXIAN_TYPES,
     DISTRICT_MINHANG_TYPES,
+    DISTRICT_PUDONG_TYPES,
     DISTRICT_SONGJIANG_TYPES,
     E2_QYGK_TYPES,
     LINK_STHJ_TYPES,
     SOURCE_DISTRICT_FENGXIAN,
     SOURCE_DISTRICT_MINHANG,
+    SOURCE_DISTRICT_PUDONG,
     SOURCE_DISTRICT_SONGJIANG,
     SOURCE_E2_QYGK,
     SOURCE_LINK_STHJ,
@@ -38,7 +40,7 @@ class CompletenessChecker:
         selected_sources = sources or [SOURCE_LINK_STHJ, SOURCE_E2_QYGK]
         types = disclosure_types or list(DISCLOSURE_TYPES)
         issues: list[str] = []
-        details: dict[str, Any] = {"link": {}, "e2": {}, "fengxian": {}, "minhang": {}, "songjiang": {}}
+        details: dict[str, Any] = {"link": {}, "e2": {}, "fengxian": {}, "minhang": {}, "songjiang": {}, "pudong": {}}
 
         if SOURCE_LINK_STHJ in selected_sources:
             for disclosure_type in [t for t in types if t in LINK_STHJ_TYPES]:
@@ -182,6 +184,48 @@ class CompletenessChecker:
                     "complete": not sj_issues,
                 }
 
+        if SOURCE_DISTRICT_PUDONG in selected_sources:
+            try:
+                from sources.district.pudong import remote_total as pudong_remote_total
+
+                remote_total_pd = pudong_remote_total(page_size=1)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("pudong remote total failed")
+                issues.append(f"浦东新区：无法读取官网总量（{exc}）")
+                remote_total_pd = 0
+            local_total = 0
+            local_max_page = 0
+            pd_issues: list[str] = []
+            for disclosure_type in [t for t in types if t in DISTRICT_PUDONG_TYPES]:
+                label = f"浦东新区 · {DISCLOSURE_TYPES[disclosure_type]['label']}"
+                local = self.store.get_source_type_coverage(SOURCE_DISTRICT_PUDONG, disclosure_type)
+                local_total += int(local["event_count"] or 0)
+                local_max_page = max(local_max_page, int(local["max_page"] or 0))
+                details["pudong"][disclosure_type] = {
+                    "label": label,
+                    "local_event_count": local["event_count"],
+                    "local_max_page": local["max_page"],
+                    "issues": [],
+                    "complete": True,
+                }
+            if remote_total_pd and local_total + 10 < remote_total_pd:
+                pd_issues.append(
+                    f"浦东新区 · 环保审批公示：本地 {local_total} 条，官网约 {remote_total_pd} 条"
+                )
+            remote_pages = max(1, (remote_total_pd + 19) // 20) if remote_total_pd else 0
+            if remote_pages and local_max_page < remote_pages:
+                pd_issues.append(
+                    f"浦东新区 · 环保审批公示：本地仅同步到第 {local_max_page} 页，官网共 {remote_pages} 页"
+                )
+            if remote_total_pd == 0 and local_total == 0:
+                pd_issues.append("浦东新区 · 环保审批公示：尚未同步")
+            issues.extend(pd_issues)
+            for item in details["pudong"].values():
+                item["issues"] = pd_issues
+                item["complete"] = not pd_issues
+                item["remote_total"] = remote_total_pd
+                item["remote_pages"] = remote_pages
+
         complete = not issues
         link_complete = all(item.get("complete") for item in details["link"].values()) if details["link"] else True
         e2_complete = all(item.get("complete") for item in details["e2"].values()) if details["e2"] else True
@@ -194,6 +238,9 @@ class CompletenessChecker:
         songjiang_complete = (
             all(item.get("complete") for item in details["songjiang"].values()) if details["songjiang"] else True
         )
+        pudong_complete = (
+            all(item.get("complete") for item in details["pudong"].values()) if details["pudong"] else True
+        )
         if complete:
             message = "本地数据与官网统计一致，无需全量下载。"
         else:
@@ -205,6 +252,7 @@ class CompletenessChecker:
             "fengxian_complete": fengxian_complete,
             "minhang_complete": minhang_complete,
             "songjiang_complete": songjiang_complete,
+            "pudong_complete": pudong_complete,
             "issue_count": len(issues),
             "issues": issues,
             "message": message,

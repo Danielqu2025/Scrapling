@@ -5,11 +5,13 @@ from __future__ import annotations
 DISTRICT_FENGXIAN = "fengxian"
 DISTRICT_MINHANG = "minhang"
 DISTRICT_SONGJIANG = "songjiang"
+DISTRICT_PUDONG = "pudong"
 
 DISTRICT_LABELS = {
     DISTRICT_FENGXIAN: "奉贤区",
     DISTRICT_MINHANG: "闵行区",
     DISTRICT_SONGJIANG: "松江区",
+    DISTRICT_PUDONG: "浦东新区",
 }
 
 STAGE_ACCEPTANCE = "acceptance"

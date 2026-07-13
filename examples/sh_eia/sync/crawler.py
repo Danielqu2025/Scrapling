@@ -8,6 +8,7 @@ from typing import Any
 from db.store import EIAStore
 from sources.district.fengxian_sync import FengxianSyncService
 from sources.district.minhang_sync import MinhangSyncService
+from sources.district.pudong_sync import PudongSyncService
 from sources.district.songjiang_sync import SongjiangSyncService
 from sources.e2_qygk.sync import E2SyncService
 from sources.link_sthj.sync import LinkSthjSyncService
@@ -15,11 +16,13 @@ from sources.types import (
     DISCLOSURE_TYPES,
     DISTRICT_FENGXIAN_TYPES,
     DISTRICT_MINHANG_TYPES,
+    DISTRICT_PUDONG_TYPES,
     DISTRICT_SONGJIANG_TYPES,
     E2_QYGK_TYPES,
     LINK_STHJ_TYPES,
     SOURCE_DISTRICT_FENGXIAN,
     SOURCE_DISTRICT_MINHANG,
+    SOURCE_DISTRICT_PUDONG,
     SOURCE_DISTRICT_SONGJIANG,
     SOURCE_E2_QYGK,
     SOURCE_LINK_STHJ,
@@ -37,6 +40,7 @@ class SyncService:
         self.fengxian_sync = FengxianSyncService(self.store)
         self.minhang_sync = MinhangSyncService(self.store)
         self.songjiang_sync = SongjiangSyncService(self.store)
+        self.pudong_sync = PudongSyncService(self.store)
         self.completeness_checker = CompletenessChecker(self.store)
 
     def check_completeness(
@@ -100,6 +104,8 @@ class SyncService:
                     sync_sources.append(SOURCE_DISTRICT_MINHANG)
                 if SOURCE_DISTRICT_SONGJIANG in selected_sources and not audit.get("songjiang_complete", False):
                     sync_sources.append(SOURCE_DISTRICT_SONGJIANG)
+                if SOURCE_DISTRICT_PUDONG in selected_sources and not audit.get("pudong_complete", False):
+                    sync_sources.append(SOURCE_DISTRICT_PUDONG)
                 if not sync_sources:
                     sync_sources = list(selected_sources)
                 stats["sync_sources"] = sync_sources
@@ -182,6 +188,21 @@ class SyncService:
                     )
                     stats.setdefault("district_songjiang", {})[disclosure_type] = type_stats
                     stats["types"][f"songjiang:{disclosure_type}"] = type_stats
+
+            if SOURCE_DISTRICT_PUDONG in sync_sources:
+                pd_types = [t for t in types if t in DISTRICT_PUDONG_TYPES]
+                self.store.update_sync_progress(job_id, "正在同步：浦东新区 · 环保审批公示", stats)
+                pudong_stats = self.pudong_sync.sync_all(
+                    disclosure_types=pd_types,
+                    max_pages=max_pages,
+                    job_id=job_id,
+                    stats=stats,
+                    resume=not force_refresh,
+                    force_refresh=force_refresh,
+                )
+                stats["district_pudong"] = pudong_stats
+                for disclosure_type, type_stats in pudong_stats.items():
+                    stats["types"][f"pudong:{disclosure_type}"] = type_stats
 
             if stats.get("skipped"):
                 message = stats.get("completeness_audit", {}).get("message", "已跳过同步")

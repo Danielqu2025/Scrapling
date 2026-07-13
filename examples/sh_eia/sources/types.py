@@ -7,6 +7,7 @@ SOURCE_E2_QYGK = "e2_qygk"
 SOURCE_DISTRICT_FENGXIAN = "district_fengxian"
 SOURCE_DISTRICT_MINHANG = "district_minhang"
 SOURCE_DISTRICT_SONGJIANG = "district_songjiang"
+SOURCE_DISTRICT_PUDONG = "district_pudong"
 
 SOURCES = {
     SOURCE_LINK_STHJ: {
@@ -28,6 +29,10 @@ SOURCES = {
     SOURCE_DISTRICT_SONGJIANG: {
         "label": "松江区环评公示",
         "base_host": "https://www.songjiang.gov.cn",
+    },
+    SOURCE_DISTRICT_PUDONG: {
+        "label": "浦东新区环评公示",
+        "base_host": "https://www.pudong.gov.cn",
     },
 }
 
@@ -65,6 +70,8 @@ DISTRICT_FENGXIAN_TYPES = list(LINK_STHJ_TYPES)
 DISTRICT_MINHANG_TYPES = list(LINK_STHJ_TYPES)
 # 松江公开接口目前仅「环评项目公告」≈ 审批决定。
 DISTRICT_SONGJIANG_TYPES = ["approval_decision"]
+# 浦东「环保审批公示」栏目混合受理/拟审批/审批决定，入库时按标题推断 disclosure_type。
+DISTRICT_PUDONG_TYPES = list(LINK_STHJ_TYPES)
 
 FILE_TYPE_LABELS = {
     "report": "环评报告",
