@@ -14,6 +14,7 @@
       --bg: #f4f6f8;
       --text: #1f2937;
       --danger: #dc2626;
+      --card: #ffffff;
       font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
     * { box-sizing: border-box; }
@@ -47,7 +48,7 @@
       margin-bottom: 18px;
     }
     .stat {
-      background: #fff;
+      background: var(--card);
       border-radius: 12px;
       padding: 16px;
       box-shadow: 0 2px 10px rgba(0,0,0,.05);
@@ -55,13 +56,37 @@
     .stat .n { font-size: 1.6rem; font-weight: 700; color: var(--primary); }
     .stat .l { color: var(--muted); font-size: 13px; margin-top: 4px; }
     .panel {
-      background: #fff;
+      background: var(--card);
       border-radius: 12px;
       padding: 18px 20px;
-      margin-bottom: 16px;
       box-shadow: 0 2px 10px rgba(0,0,0,.05);
     }
-    .panel h2 { margin: 0 0 14px; font-size: 1.1rem; color: var(--primary); }
+    .admin-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 2px solid var(--border);
+    }
+    .admin-tab {
+      padding: 10px 20px;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      font-size: 14px;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color .15s, border-color .15s;
+    }
+    .admin-tab:hover { color: var(--text); }
+    .admin-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      font-weight: 600;
+    }
+    .admin-tab .count { color: var(--danger); font-weight: 600; }
+    .admin-tab-content { display: none; }
+    .admin-tab-content.active { display: block; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
     th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: none; }
@@ -111,24 +136,30 @@
     <section class="stats" id="stats"></section>
 
     <section class="panel">
-      <h2>待审批用户</h2>
-      <div id="pendingBox"></div>
-    </section>
+      <div class="admin-tabs">
+        <button type="button" class="admin-tab active" data-tab="pending">
+          待审批<span class="count" id="pendingCount"></span>
+        </button>
+        <button type="button" class="admin-tab" data-tab="active">已激活用户</button>
+        <button type="button" class="admin-tab" data-tab="audit">审计日志</button>
+      </div>
 
-    <section class="panel">
-      <h2>全部用户</h2>
-      <div id="usersBox"></div>
-    </section>
-
-    <section class="panel">
-      <h2>审计日志</h2>
-      <div id="auditBox"></div>
+      <div class="admin-tab-content active" id="tab-pending">
+        <div id="pendingBox"></div>
+      </div>
+      <div class="admin-tab-content" id="tab-active">
+        <div id="usersBox"></div>
+      </div>
+      <div class="admin-tab-content" id="tab-audit">
+        <div id="auditBox"></div>
+      </div>
     </section>
   </main>
 
   <script src="/static/common.js"></script>
   <script>
     const auth = window.ShEiaAuth;
+    let currentTab = "pending";
 
     function setMsg(text, isError) {
       const el = document.getElementById("msg");
@@ -140,18 +171,31 @@
       return `<span class="badge ${status}">${status}</span>`;
     }
 
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll(".admin-tab").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === tab);
+      });
+      document.querySelectorAll(".admin-tab-content").forEach((el) => {
+        el.classList.toggle("active", el.id === `tab-${tab}`);
+      });
+    }
+
     async function loadStats() {
       const res = await auth.authFetch("/api/admin/stats");
       const data = await res.json();
       if (!res.ok) throw new Error(auth.apiErrorMessage(data));
       const s = data.users_by_status || {};
+      const pending = s.pending ?? 0;
       document.getElementById("stats").innerHTML = `
         <div class="stat"><div class="n">${data.users_total ?? 0}</div><div class="l">用户总数</div></div>
-        <div class="stat"><div class="n">${s.pending ?? 0}</div><div class="l">待审批</div></div>
+        <div class="stat"><div class="n">${pending}</div><div class="l">待审批</div></div>
         <div class="stat"><div class="n">${s.active ?? 0}</div><div class="l">已激活</div></div>
         <div class="stat"><div class="n">${s.disabled ?? 0}</div><div class="l">已停用</div></div>
         <div class="stat"><div class="n">${data.admins ?? 0}</div><div class="l">管理员</div></div>
       `;
+      const countEl = document.getElementById("pendingCount");
+      countEl.textContent = pending > 0 ? ` (${pending})` : "";
     }
 
     function userActions(user) {
@@ -207,17 +251,19 @@
       });
     }
 
-    async function loadUsers() {
-      const [pendingRes, allRes] = await Promise.all([
-        auth.authFetch("/api/admin/users/pending"),
-        auth.authFetch("/api/admin/users"),
-      ]);
-      const pending = await pendingRes.json();
-      const all = await allRes.json();
-      if (!pendingRes.ok) throw new Error(auth.apiErrorMessage(pending));
-      if (!allRes.ok) throw new Error(auth.apiErrorMessage(all));
-      renderUsers("pendingBox", pending.users || [], "暂无待审批用户");
-      renderUsers("usersBox", all.users || [], "暂无用户");
+    async function loadPendingUsers() {
+      const res = await auth.authFetch("/api/admin/users/pending");
+      const data = await res.json();
+      if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+      renderUsers("pendingBox", data.users || [], "暂无待审批用户");
+    }
+
+    async function loadActiveUsers() {
+      const res = await auth.authFetch("/api/admin/users");
+      const data = await res.json();
+      if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+      const users = (data.users || []).filter((u) => u.status !== "pending");
+      renderUsers("usersBox", users, "暂无已激活/停用用户");
     }
 
     async function loadAudit() {
@@ -248,6 +294,12 @@
           </tbody>
         </table>
       `;
+    }
+
+    async function loadCurrentTab() {
+      if (currentTab === "pending") await loadPendingUsers();
+      else if (currentTab === "active") await loadActiveUsers();
+      else await loadAudit();
     }
 
     async function handleAction(act, userId) {
@@ -285,8 +337,22 @@
     }
 
     async function refreshAll() {
-      await Promise.all([loadStats(), loadUsers(), loadAudit()]);
+      await loadStats();
+      await loadCurrentTab();
     }
+
+    document.querySelectorAll(".admin-tab").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (btn.dataset.tab === currentTab) return;
+        switchTab(btn.dataset.tab);
+        setMsg("");
+        try {
+          await loadCurrentTab();
+        } catch (err) {
+          setMsg(err.message || "加载失败", true);
+        }
+      });
+    });
 
     document.getElementById("changePasswordBtn").addEventListener("click", () => {
       auth.openChangePasswordModal();
