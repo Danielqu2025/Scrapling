@@ -26,14 +26,31 @@
     header {
       background: linear-gradient(135deg, #1e3a8a, #2563eb);
       color: #fff;
-      padding: 20px 24px;
+      padding: 14px 24px;
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
+      align-items: center;
       gap: 16px;
       flex-wrap: wrap;
     }
     header > div:first-child { flex: 1; min-width: 240px; }
+    .brand-title {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .brand-title h1 {
+      margin: 0;
+      font-size: 2em;
+      line-height: 1.2;
+    }
+    .brand-title p {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.4;
+      opacity: .92;
+    }
     .user-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .user-bar-name { font-size: 14px; opacity: .95; }
     .user-bar-link, .user-bar-btn {
@@ -131,7 +148,7 @@
 </head>
 <body>
   <header>
-    <div>
+    <div class="brand-title">
       <h1>上海环评资料检索</h1>
       <p>整合投用前公示（受理→拟审批→审批决定）与中后期信息公开，按项目全生命周期展示</p>
     </div>
