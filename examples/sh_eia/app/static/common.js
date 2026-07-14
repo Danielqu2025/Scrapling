@@ -147,6 +147,7 @@
         #changePasswordMask h3 { margin: 0 0 14px; font-size: 18px; color: #2563eb; }
         #changePasswordMask label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin: 0 0 6px; }
         #changePasswordMask .cp-field { margin-bottom: 12px; }
+        #changePasswordMask .cp-hint { margin: 6px 0 0; font-size: 12px; color: #64748b; line-height: 1.4; }
         #changePasswordMask input {
           width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #e5e7eb;
           border-radius: 8px; font-size: 15px;
@@ -168,12 +169,14 @@
             <input id="cpCurrent" type="password" required autocomplete="current-password">
           </div>
           <div class="cp-field">
-            <label for="cpNew">新密码（至少 8 位）</label>
-            <input id="cpNew" type="password" required minlength="8" autocomplete="new-password">
+            <label for="cpNew">新密码</label>
+            <input id="cpNew" type="password" required minlength="8" maxlength="128" autocomplete="new-password" title="密码至少 8 位">
+            <p class="cp-hint">密码长度至少 8 位，最长 128 位</p>
           </div>
           <div class="cp-field">
             <label for="cpNew2">确认新密码</label>
-            <input id="cpNew2" type="password" required minlength="8" autocomplete="new-password">
+            <input id="cpNew2" type="password" required minlength="8" maxlength="128" autocomplete="new-password" title="请再次输入密码，至少 8 位">
+            <p class="cp-hint">请再次输入密码（至少 8 位）</p>
           </div>
           <div class="cp-actions">
             <button type="button" class="cp-cancel" id="cpCancel">取消</button>
@@ -208,6 +211,10 @@
       const new2 = document.getElementById("cpNew2").value;
       if (new_password !== new2) {
         setMsg("两次输入的新密码不一致", true);
+        return;
+      }
+      if (new_password.length < 8) {
+        setMsg("新密码长度至少 8 位", true);
         return;
       }
       setMsg("正在提交…");

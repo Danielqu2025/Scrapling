@@ -165,6 +165,7 @@
         buttons.push(`<button data-act="activate" data-id="${user.id}">激活</button>`);
       }
       buttons.push(`<button class="secondary" data-act="reset" data-id="${user.id}">重置密码</button>`);
+      buttons.push(`<button class="danger" data-act="delete" data-id="${user.id}">删除</button>`);
       return `<div class="actions">${buttons.join("")}</div>`;
     }
 
@@ -262,6 +263,12 @@
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(auth.apiErrorMessage(data));
           setMsg("密码已重置");
+        } else if (act === "delete") {
+          if (!confirm("确定删除该用户？此操作不可恢复。")) return;
+          const res = await auth.authFetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+          setMsg("用户已删除");
         } else {
           const path =
             act === "approve" ? "approve" :

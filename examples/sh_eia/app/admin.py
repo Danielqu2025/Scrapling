@@ -1,4 +1,4 @@
-"""Admin APIs: user approval, status, password reset, stats, audit logs."""
+"""Admin APIs: user approval, status, password reset, delete, stats, audit logs."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import (
     count_users_by_status,
+    delete_user,
     get_user_by_id,
     list_audit_logs,
     list_users,
@@ -127,6 +128,25 @@ def admin_reset_password(
         detail=f"重置用户 #{user_id} 密码",
     )
     return {"status": "ok", "message": "密码已重置", "user": public_user(user)}
+
+
+@router.delete("/users/{user_id}")
+def admin_delete_user(
+    user_id: int,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        user = delete_user(user_id, actor=admin)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    write_audit(
+        "delete_user",
+        actor_id=admin["id"],
+        actor_username=admin["username"],
+        target=user["username"],
+        detail=f"删除用户 #{user_id}",
+    )
+    return {"status": "ok", "message": "用户已删除", "user": public_user(user)}
 
 
 @router.patch("/users/{user_id}/status")

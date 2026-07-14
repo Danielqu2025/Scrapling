@@ -300,6 +300,28 @@ def reset_user_password(user_id: int, new_password: str) -> None:
             conn.close()
 
 
+def delete_user(user_id: int, *, actor: dict[str, Any] | None = None) -> dict[str, Any]:
+    user = get_user_by_id(user_id)
+    if not user:
+        raise ValueError("用户不存在。")
+    if actor and int(actor["id"]) == int(user_id):
+        raise ValueError("不能删除当前登录的管理员账号。")
+    if (
+        user["role"] == "admin"
+        and user["status"] == "active"
+        and count_admins_active() <= 1
+    ):
+        raise ValueError("不能删除最后一个活跃管理员。")
+    with _db_lock:
+        conn = _connect()
+        try:
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return user
+
+
 def touch_last_login(user_id: int) -> None:
     with _db_lock:
         conn = _connect()
