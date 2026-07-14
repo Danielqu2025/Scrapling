@@ -232,14 +232,47 @@
         flex: 1;
         overflow: hidden;
       }
-      .stage-rail { display: none; }
-      .stage-select {
-        display: block;
-        position: sticky;
-        top: 0;
-        z-index: 1;
+      /* 移动端：阶段栏改为顶部横向滚动 pill 条，更贴合窄屏 */
+      .stage-rail {
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        padding: 12px 14px;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        background: #f8fafc;
         flex-shrink: 0;
       }
+      .stage-select { display: none; }
+      .stage-item {
+        flex: 0 0 auto;
+        padding: 9px 14px 9px 26px;
+        border-left: 0;
+        border: 1px solid #e2e8f0;
+        border-radius: 999px;
+        background: #fff;
+        transition: .15s;
+        white-space: nowrap;
+      }
+      .stage-item:hover { background: #e2e8f0; }
+      .stage-item.active {
+        background: var(--stage-active);
+        border-color: var(--stage-active);
+        box-shadow: none;
+      }
+      .stage-item.active .label,
+      .stage-item.active .time { color: #fff; }
+      .stage-item.active .dot { background: #fff; }
+      .stage-item.completed { border-color: var(--stage-done); }
+      .stage-item.completed .dot { background: var(--stage-done); }
+      .stage-item.partial { border-color: #f59e0b; }
+      .stage-item.partial .dot { background: #f59e0b; }
+      .stage-item.empty { opacity: .72; }
+      .stage-item .dot { left: 12px; top: 50%; transform: translateY(-50%); }
+      .stage-item .time { margin-top: 2px; }
       .stage-panel-wrap { flex: 1; min-height: 0; }
       .stage-panel { padding: 14px 16px 24px; }
       .stage-panel h3 { font-size: 17px; margin-bottom: 12px; }
