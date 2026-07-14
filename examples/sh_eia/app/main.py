@@ -240,25 +240,64 @@ def _content_disposition(filename: str, fallback: str = "download.bin") -> str:
     return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded}'
 
 
-def _fetch_link_file_body(file_item: dict[str, Any]) -> tuple[bytes, str]:
+def _cache_path_for_file(file_item: dict[str, Any], filename: str) -> Path:
+    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    file_id = file_item.get("id") or "x"
+    return DOWNLOAD_DIR / f"{file_id}_{filename}"
+
+
+def _ensure_cached_link_file(file_item: dict[str, Any]) -> tuple[Path, str]:
+    """Fetch link.sthj attachment to local cache (avoids re-downloading large PDFs)."""
     if file_item.get("download_status") == "captcha_required":
         raise HTTPException(status_code=400, detail="该文件需在官网输入验证码下载。")
+
+    filename = _safe_filename(file_item.get("file_name") or "download.pdf")
+    cache_path = _cache_path_for_file(file_item, filename)
+    if cache_path.exists() and cache_path.stat().st_size > 64:
+        return cache_path, filename
+
     from scrapling.fetchers import FetcherSession
 
     url = resolve_download_url(file_item["file_url"], file_item.get("file_name", ""))
-    with FetcherSession(impersonate="chrome", timeout=600, retries=5) as session:
-        response = session.get(url, stealthy_headers=True, timeout=600, retries=5)
-        body = normalize_response_body(response.body)
-    filename = _safe_filename(file_item.get("file_name") or "download.pdf")
+    try:
+        with FetcherSession(impersonate="chrome", timeout=180, retries=2) as session:
+            response = session.get(url, stealthy_headers=True, timeout=180, retries=2)
+            body = normalize_response_body(response.body)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Official download failed for file_id=%s url=%s", file_item.get("id"), url)
+        raise HTTPException(
+            status_code=502,
+            detail=f"{filename}：官网下载失败或超时，请稍后重试（{type(exc).__name__}）",
+        ) from exc
+
     if is_html_response(body):
-        raise HTTPException(status_code=502, detail=f"{filename}：服务器未返回有效文件（可能已过期或不存在）")
-    return body, filename
+        raise HTTPException(
+            status_code=502,
+            detail=f"{filename}：服务器未返回有效文件（可能已过期或不存在）",
+        )
+    if not body:
+        raise HTTPException(status_code=502, detail=f"{filename}：官网返回空文件")
+
+    tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
+    try:
+        tmp_path.write_bytes(body)
+        tmp_path.replace(cache_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return cache_path, filename
 
 
-def _file_download_response(file_item: dict[str, Any], *, fallback: str) -> StreamingResponse:
-    body, filename = _fetch_link_file_body(file_item)
-    return StreamingResponse(
-        BytesIO(body),
+def _fetch_link_file_body(file_item: dict[str, Any]) -> tuple[bytes, str]:
+    path, filename = _ensure_cached_link_file(file_item)
+    return path.read_bytes(), filename
+
+
+def _file_download_response(file_item: dict[str, Any], *, fallback: str) -> FileResponse:
+    path, filename = _ensure_cached_link_file(file_item)
+    return FileResponse(
+        path=path,
         media_type="application/pdf",
         headers={"Content-Disposition": _content_disposition(filename, fallback=fallback)},
     )
@@ -275,13 +314,13 @@ def _zip_download_response(file_ids: list[int]) -> StreamingResponse:
         errors: list[str] = []
         for index, file_item in enumerate(files, 1):
             try:
-                body, filename = _fetch_link_file_body(file_item)
+                path, filename = _ensure_cached_link_file(file_item)
+                archive.write(path, arcname=filename)
             except HTTPException as exc:
                 filename = _safe_filename(file_item.get("file_name") or f"attachment_{index}")
                 detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
                 errors.append(f"{filename}: {detail}")
                 continue
-            archive.writestr(filename, body)
 
         if errors and not any(name for name in archive.namelist() if not name.startswith("_")):
             raise HTTPException(status_code=502, detail="所选文件均无法下载：" + "；".join(errors))

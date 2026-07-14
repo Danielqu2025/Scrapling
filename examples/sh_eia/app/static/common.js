@@ -112,7 +112,16 @@
   }
 
   async function downloadWithAuth(url, fallbackName) {
-    const res = await authFetch(url);
+    let res;
+    try {
+      res = await authFetch(url);
+    } catch (err) {
+      const raw = (err && err.message) || "";
+      if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+        throw new Error("下载中断：文件较大或官网较慢导致连接超时，请重试；若仍失败可在官网来源页直接下载。");
+      }
+      throw err;
+    }
     if (!res.ok) {
       let message = "下载失败";
       try {

@@ -462,13 +462,14 @@
     }
 
     function downloadSingleFile(fileId, buttonEl) {
-      setDownloadStatus("已开始下载，请查看浏览器下载栏。大文件可能需要等待较长时间。");
-      window.ShEiaAuth.downloadWithAuth(`/api/download/file/${fileId}`, `attachment_${fileId}.pdf`)
-        .then(() => setDownloadStatus("下载已完成（或已开始保存）。"))
-        .catch((err) => {
-          setDownloadStatus(err.message || "下载失败", true);
-          alert(err.message || "下载失败");
-        });
+      // Cookie 鉴权的浏览器原生下载：大 PDF（十余 MB）走 fetch+blob 易长时间无响应后变成 Failed to fetch
+      setDownloadStatus("正在下载（首次需从官网拉取，环评报告可能较大，请查看浏览器下载栏）…");
+      const a = document.createElement("a");
+      a.href = `/api/download/file/${fileId}`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       if (buttonEl) {
         const oldText = buttonEl.textContent;
         buttonEl.disabled = true;
@@ -476,7 +477,8 @@
         setTimeout(() => {
           buttonEl.disabled = false;
           buttonEl.textContent = oldText;
-        }, 1500);
+          setDownloadStatus("若下载栏未出现文件，请检查是否已登录，或稍后重试。");
+        }, 8000);
       }
     }
 
