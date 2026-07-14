@@ -273,14 +273,17 @@ def _unique_zip_name(filename: str, file_item: dict[str, Any], used: set[str]) -
 
 
 def _content_disposition(filename: str, fallback: str = "download.bin") -> str:
+    """RFC 5987-friendly Content-Disposition for desktop + Chinese mobile browsers.
+
+    Many Android / WeChat WebViews ignore filename* and only read filename=.
+    Percent-encode UTF-8 into filename= (legacy IE/Android habit) and also set
+    filename*=UTF-8''… so modern browsers pick the proper Unicode name.
+    """
     safe = _safe_filename(filename) or fallback
     if safe.isascii():
         return f'attachment; filename="{safe}"'
-    ascii_name = re.sub(r"[^\x20-\x7E]", "_", safe).strip("._") or fallback
-    if "." not in ascii_name and "." in fallback:
-        ascii_name = fallback
     encoded = quote(safe, safe="")
-    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded}'
+    return f"attachment; filename=\"{encoded}\"; filename*=UTF-8''{encoded}"
 
 
 def _cache_path_for_file(file_item: dict[str, Any], filename: str) -> Path:

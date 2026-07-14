@@ -87,16 +87,27 @@
 
   function filenameFromDisposition(disp) {
     if (!disp) return "";
-    const star = disp.match(/filename\*=UTF-8''([^;]+)/i);
+    // Prefer RFC 5987 filename* (must run before plain filename= — it also contains "filename")
+    const star = disp.match(/filename\*=(?:UTF-8|utf-8)''([^;\s]+)/i);
     if (star) {
       try {
-        return decodeURIComponent(star[1]);
+        return decodeURIComponent(star[1].replace(/["']/g, ""));
       } catch (_) {
         /* ignore */
       }
     }
-    const plain = disp.match(/filename="?([^";]+)"?/i);
-    return plain ? plain[1] : "";
+    // Legacy: filename="…" may be percent-encoded UTF-8 (mobile / WeChat compat)
+    const plain = disp.match(/filename="([^"]+)"/i) || disp.match(/;\s*filename=([^;\s]+)/i);
+    if (!plain) return "";
+    let name = plain[1].trim().replace(/^["']|["']$/g, "");
+    if (/%[0-9A-Fa-f]{2}/.test(name)) {
+      try {
+        return decodeURIComponent(name);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return name;
   }
 
   function saveBlobDownload(blob, filename) {
@@ -169,6 +180,12 @@
         #changePasswordMask .cp-cancel { background: #eef2ff; color: #1e3a8a; }
         #changePasswordMask .cp-msg { min-height: 1.2em; margin-top: 10px; font-size: 13px; color: #1e40af; }
         #changePasswordMask .cp-msg.error { color: #dc2626; }
+        @media (max-width: 480px) {
+          #changePasswordMask { padding: 12px; align-items: flex-start; }
+          #changePasswordMask .cp-card { padding: 18px 14px 14px; border-radius: 12px; margin-top: 10vh; }
+          #changePasswordMask .cp-actions { flex-direction: column-reverse; }
+          #changePasswordMask .cp-submit, #changePasswordMask .cp-cancel { width: 100%; }
+        }
       </style>
       <div class="cp-card">
         <h3>修改密码</h3>

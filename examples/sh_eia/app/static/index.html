@@ -111,9 +111,21 @@
     .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: #f8fafc; border-bottom: 1px solid var(--border); }
     .modal-head h2 { margin: 0; font-size: 20px; }
     .modal-body { display: grid; grid-template-columns: 280px 1fr; min-height: 520px; }
-    @media (max-width: 860px) { .modal-body { grid-template-columns: 1fr; } }
 
     .stage-rail { background: #f1f5f9; border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
+    .stage-select {
+      display: none;
+      width: 100%;
+      margin: 0;
+      padding: 12px 14px;
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      appearance: auto;
+    }
     .stage-item { position: relative; padding: 14px 16px 14px 22px; cursor: pointer; border-left: 4px solid transparent; transition: .15s; }
     .stage-item:hover { background: #e2e8f0; }
     .stage-item.active { background: #fff; border-left-color: var(--stage-active); box-shadow: inset 0 0 0 1px #dbeafe; }
@@ -126,8 +138,8 @@
     .stage-item.completed .dot { background: var(--stage-done); }
     .stage-item.active .dot { background: var(--stage-active); }
 
-    .stage-panel { padding: 20px 24px; overflow-y: auto; flex: 1; }
-    .stage-panel-wrap { display: flex; flex-direction: column; overflow: hidden; }
+    .stage-panel { padding: 20px 24px; overflow-y: auto; flex: 1; min-height: 0; -webkit-overflow-scrolling: touch; }
+    .stage-panel-wrap { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
     .stage-panel h3 { margin: 0 0 16px; color: var(--primary); }
     .field-grid { display: grid; gap: 10px; }
     .field-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
@@ -135,6 +147,9 @@
     .field-row-long .fname { font-weight: 600; color: #475569; padding-bottom: 4px; }
     .field-row .fvalue { white-space: pre-wrap; word-break: break-word; }
     .field-row-long .fvalue { line-height: 1.65; }
+    .field-hint { margin: 6px 0 0; font-size: 12px; }
+    .inline-file-names { margin: 0; padding-left: 1.2em; }
+    .inline-file-names li { margin: 4px 0; word-break: break-all; }
     .file-list { margin-top: 18px; }
     .file-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
     .file-item > span { flex: 1; min-width: 0; word-break: break-all; }
@@ -144,6 +159,142 @@
     .captcha-box { text-align: center; padding: 8px 0 16px; }
     .captcha-box img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
     .captcha-box input { width: 100%; margin-top: 12px; padding: 10px; font-size: 18px; letter-spacing: 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 8px; }
+
+    html { -webkit-text-size-adjust: 100%; }
+    img { max-width: 100%; height: auto; }
+
+    @media (max-width: 960px) {
+      header { padding: 12px 16px; }
+      header > div:first-child { min-width: 0; }
+      .brand-title { flex-direction: column; align-items: flex-start; gap: 4px; }
+      .brand-title h1 { font-size: 1.35rem; }
+      .brand-title p { font-size: 13px; line-height: 1.45; }
+      .user-bar { width: 100%; }
+      .user-bar-link, .user-bar-btn { padding: 8px 10px; font-size: 12px; }
+      main { padding: 12px; }
+      .panel { padding: 14px; border-radius: 10px; }
+      .filter-panel { position: static; }
+      .filter-panel-body { max-height: none; padding: 14px; }
+      .results-panel { min-height: 0; }
+      input[type=text] { min-width: 0; width: 100%; }
+      .result-card { padding: 14px 0; }
+      .result-card h3 { font-size: 16px; line-height: 1.4; }
+      .result-card .row button { width: 100%; }
+      .badge { margin-bottom: 4px; }
+    }
+
+    @media (max-width: 1024px) {
+      .modal-mask { padding: 0; align-items: stretch; }
+      .modal {
+        width: 100%;
+        height: 100%;
+        min-height: 100%;
+        max-height: 100%;
+        border-radius: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .modal-head {
+        flex-wrap: nowrap;
+        gap: 10px;
+        padding: 12px 14px;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        align-items: flex-start;
+      }
+      .modal-head > div:first-child { flex: 1; min-width: 0; }
+      .modal-head h2 {
+        font-size: 15px;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .modal-head .meta {
+        font-size: 12px;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .modal-head #progressClose {
+        flex-shrink: 0;
+        padding: 8px 12px;
+      }
+      .modal-body {
+        display: flex;
+        flex-direction: column;
+        grid-template-columns: none;
+        min-height: 0;
+        flex: 1;
+        overflow: hidden;
+      }
+      .stage-rail { display: none; }
+      .stage-select {
+        display: block;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        flex-shrink: 0;
+      }
+      .stage-panel-wrap { flex: 1; min-height: 0; }
+      .stage-panel { padding: 14px 16px 24px; }
+      .stage-panel h3 { font-size: 17px; margin-bottom: 12px; }
+      .field-grid { gap: 8px; }
+      .field-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .field-row .fname { font-weight: 600; color: #475569; font-size: 12px; }
+      .field-row .fvalue { font-size: 14px; line-height: 1.55; }
+      .file-list h4 { margin: 16px 0 10px; font-size: 15px; }
+      .file-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background: #fff;
+        margin-bottom: 8px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .file-item > span { font-size: 13px; line-height: 1.45; }
+      .file-actions { justify-content: stretch; }
+      .file-actions button, .file-item > button {
+        width: 100%;
+        min-height: 42px;
+        font-size: 14px;
+      }
+      #downloadStatusMessage { padding: 0 16px 16px !important; font-size: 13px; }
+      .captcha-modal.modal-mask {
+        padding: 12px;
+        align-items: center;
+        justify-content: center;
+      }
+      .captcha-modal .modal {
+        width: min(420px, 100%);
+        height: auto;
+        min-height: auto;
+        max-height: calc(100% - 24px);
+        border-radius: 14px;
+        margin: auto;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .brand-title h1 { font-size: 1.2rem; }
+      .user-bar { gap: 6px; }
+      .results-head h2 { font-size: 16px; }
+    }
   </style>
 </head>
 <body>
@@ -231,6 +382,7 @@
       </div>
       <div class="modal-body">
         <div id="stageRail" class="stage-rail"></div>
+        <select id="stageSelect" class="stage-select" aria-label="选择项目阶段"></select>
         <div class="stage-panel-wrap">
           <div id="stagePanel" class="stage-panel"></div>
           <div id="downloadStatusMessage" class="meta" style="padding:0 24px 16px;color:#1e40af"></div>
@@ -403,6 +555,7 @@
 
     function renderStageRail() {
       const rail = document.getElementById("stageRail");
+      const select = document.getElementById("stageSelect");
       rail.innerHTML = progressData.stages.map(stage => `
         <div class="stage-item ${stage.key === activeStageKey ? "active" : ""} ${stage.status}" data-key="${stage.key}">
           <span class="dot"></span>
@@ -416,29 +569,71 @@
           renderStagePanel(activeStageKey);
         });
       });
+      select.innerHTML = progressData.stages.map(stage => {
+        const mark = stage.status === "empty" ? "（暂无）" : (stage.date ? ` · ${stage.date}` : "");
+        return `<option value="${stage.key}" ${stage.key === activeStageKey ? "selected" : ""}>${stage.label}${mark}</option>`;
+      }).join("");
     }
 
     const LONG_FIELD_LABELS = new Set(["项目概况", "项目基本信息"]);
+
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function isDownloadListField(label, value) {
+      const text = String(value || "");
+      if (!/下载/.test(text) || !/\.pdf/i.test(text)) return false;
+      return /(报告|意见|附件|说明|措施|文件)/.test(label || "") || (text.match(/\.pdf/gi) || []).length >= 2;
+    }
+
+    function formatFieldValue(label, value) {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      if (isDownloadListField(label, text)) {
+        const parts = text
+          .split(/\s*下载\s*/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (parts.length > 1) {
+          return (
+            `<ul class="inline-file-names">${parts.map((part) => `<li>${escapeHtml(part)}</li>`).join("")}</ul>` +
+            `<p class="meta field-hint">正式下载请使用下方「附件」按钮</p>`
+          );
+        }
+      }
+      return escapeHtml(text);
+    }
 
     function renderStagePanel(key) {
       const stage = progressData.stages.find(s => s.key === key);
       const panel = document.getElementById("stagePanel");
       if (!stage) return;
-      const fields = (stage.fields || []).map(f => {
-        const longField = LONG_FIELD_LABELS.has(f.label);
-        return `<div class="field-row${longField ? " field-row-long" : ""}"><div class="fname">${f.label}</div><div class="fvalue">${f.value}</div></div>`;
-      }).join("");
+      const hasFiles = (stage.files || []).length > 0;
+      const fields = (stage.fields || [])
+        .filter((f) => !(hasFiles && isDownloadListField(f.label, f.value)))
+        .map((f) => {
+          const longField = LONG_FIELD_LABELS.has(f.label) || isDownloadListField(f.label, f.value);
+          return `<div class="field-row${longField ? " field-row-long" : ""}"><div class="fname">${escapeHtml(f.label)}</div><div class="fvalue">${formatFieldValue(f.label, f.value)}</div></div>`;
+        })
+        .join("");
       const files = (stage.files || []).map(f => `
         <div class="file-item">
-          <span>[${f.file_type_label || f.file_type}] ${f.file_name || f.file_url || ""}</span>
-          ${f.download_status === "captcha_required"
-            ? `<button class="linkish captchaBtn" data-file-id="${f.id}">验证码下载</button>`
-            : `<button type="button" class="linkish singleDownloadBtn" data-file-id="${f.id}">下载</button>`}
+          <span><strong>[${escapeHtml(f.file_type_label || f.file_type)}]</strong> ${escapeHtml(f.file_name || f.file_url || "")}</span>
+          <div class="file-actions">
+            ${f.download_status === "captcha_required"
+              ? `<button class="linkish captchaBtn" data-file-id="${f.id}">验证码下载</button>`
+              : `<button type="button" class="linkish singleDownloadBtn" data-file-id="${f.id}">下载</button>`}
+          </div>
         </div>`).join("");
       panel.innerHTML = `
-        <h3>${stage.label}</h3>
+        <h3>${escapeHtml(stage.label)}</h3>
         <div class="field-grid">${fields || "<div class='meta'>暂无字段</div>"}</div>
-        ${stage.source_url ? `<p class="meta" style="margin-top:12px"><a href="${stage.source_url}" target="_blank">查看官网来源</a></p>` : ""}
+        ${stage.source_url ? `<p class="meta" style="margin-top:12px"><a href="${escapeHtml(stage.source_url)}" target="_blank" rel="noopener">查看官网来源</a></p>` : ""}
         <div class="file-list">${files ? "<h4 style='margin:18px 0 8px'>附件</h4>" + files : ""}</div>`;
       panel.querySelectorAll(".captchaBtn").forEach(btn => {
         btn.addEventListener("click", () => openCaptcha(Number(btn.dataset.fileId)));
@@ -446,6 +641,7 @@
       panel.querySelectorAll(".singleDownloadBtn").forEach(btn => {
         btn.addEventListener("click", () => downloadSingleFile(Number(btn.dataset.fileId), btn));
       });
+      panel.scrollTop = 0;
     }
 
     function setDownloadStatus(message, isError = false) {
@@ -626,6 +822,11 @@
       document.getElementById(id).addEventListener("change", search);
     });
     document.getElementById("progressClose").addEventListener("click", () => document.getElementById("progressModal").classList.remove("show"));
+    document.getElementById("stageSelect").addEventListener("change", (e) => {
+      activeStageKey = e.target.value;
+      renderStageRail();
+      renderStagePanel(activeStageKey);
+    });
     document.getElementById("captchaClose").addEventListener("click", () => document.getElementById("captchaModal").classList.remove("show"));
     document.getElementById("captchaSubmit").addEventListener("click", submitCaptcha);
     document.getElementById("captchaRefresh").addEventListener("click", refreshCaptchaImage);

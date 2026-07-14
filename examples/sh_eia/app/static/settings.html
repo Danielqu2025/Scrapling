@@ -133,6 +133,32 @@
       width: 0%;
       transition: width .4s ease;
     }
+
+    html { -webkit-text-size-adjust: 100%; }
+
+    @media (max-width: 960px) {
+      header { padding: 12px 16px; align-items: flex-start; }
+      header > div:first-child { min-width: 0; }
+      header h1 { font-size: 1.2rem; }
+      header p { font-size: 13px; line-height: 1.45; }
+      .user-bar { width: 100%; }
+      .user-bar-link, .user-bar-btn { padding: 8px 10px; font-size: 12px; }
+      main { padding: 12px; }
+      .panel { padding: 14px; border-radius: 10px; }
+      .panel h2 { font-size: 16px; }
+      .row { align-items: stretch; }
+      .row > button,
+      .row > label.file-btn {
+        flex: 1 1 100%;
+        width: 100%;
+        text-align: center;
+      }
+    }
+
+    @media (max-width: 480px) {
+      header h1 { font-size: 1.1rem; }
+      .user-bar { gap: 6px; }
+    }
   </style>
 </head>
 <body>
