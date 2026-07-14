@@ -32,6 +32,7 @@ from db.store import EIAStore, SORT_BY_OPTIONS, SORT_ORDER_OPTIONS, utc_now
 from sources.e2_qygk.download import refresh_captcha, start_captcha_session, submit_captcha_download
 from sources.types import (
     DISCLOSURE_TYPES,
+    FILE_TYPE_LABELS,
     SOURCE_DISTRICT_FENGXIAN,
     SOURCE_DISTRICT_MINHANG,
     SOURCE_DISTRICT_PUDONG,
@@ -229,6 +230,48 @@ def _safe_filename(name: str) -> str:
     return cleaned or "download.bin"
 
 
+_MAX_PROJECT_IN_FILENAME = 40
+_MAX_DOWNLOAD_FILENAME = 120
+
+
+def _download_filename(file_item: dict[str, Any]) -> str:
+    """Build a browse-friendly download name: {项目短名}_{用途标签}.ext"""
+    original = (file_item.get("file_name") or "").strip()
+    suffix = Path(original).suffix
+    if not suffix or len(suffix) > 8:
+        suffix = ".pdf"
+
+    project = re.sub(r"\s+", " ", (file_item.get("project_name") or "").strip())
+    if len(project) > _MAX_PROJECT_IN_FILENAME:
+        project = project[:_MAX_PROJECT_IN_FILENAME].rstrip()
+
+    file_type = (file_item.get("file_type") or "").strip()
+    label = (
+        (file_item.get("file_type_label") or "").strip()
+        or FILE_TYPE_LABELS.get(file_type, "")
+        or file_type
+        or "附件"
+    )
+
+    parts = [part for part in (project, label) if part]
+    stem = "_".join(parts) if parts else (Path(original).stem if original else f"attachment_{file_item.get('id') or 'x'}")
+    name = f"{stem}{suffix}"
+    if len(name) > _MAX_DOWNLOAD_FILENAME:
+        stem = stem[: _MAX_DOWNLOAD_FILENAME - len(suffix)].rstrip("._ ")
+        name = f"{stem}{suffix}"
+    return _safe_filename(name)
+
+
+def _unique_zip_name(filename: str, file_item: dict[str, Any], used: set[str]) -> str:
+    if filename not in used:
+        used.add(filename)
+        return filename
+    path = Path(filename)
+    candidate = f"{path.stem}_{file_item.get('id') or 'x'}{path.suffix}"
+    used.add(candidate)
+    return candidate
+
+
 def _content_disposition(filename: str, fallback: str = "download.bin") -> str:
     safe = _safe_filename(filename) or fallback
     if safe.isascii():
@@ -251,8 +294,9 @@ def _ensure_cached_link_file(file_item: dict[str, Any]) -> tuple[Path, str]:
     if file_item.get("download_status") == "captcha_required":
         raise HTTPException(status_code=400, detail="该文件需在官网输入验证码下载。")
 
-    filename = _safe_filename(file_item.get("file_name") or "download.pdf")
-    cache_path = _cache_path_for_file(file_item, filename)
+    cache_name = _safe_filename(file_item.get("file_name") or "download.pdf")
+    cache_path = _cache_path_for_file(file_item, cache_name)
+    filename = _download_filename(file_item)
     if cache_path.exists() and cache_path.stat().st_size > 64:
         return cache_path, filename
 
@@ -312,12 +356,15 @@ def _zip_download_response(file_ids: list[int]) -> StreamingResponse:
 
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         errors: list[str] = []
+        used_names: set[str] = set()
         for index, file_item in enumerate(files, 1):
             try:
                 path, filename = _ensure_cached_link_file(file_item)
-                archive.write(path, arcname=filename)
+                archive.write(path, arcname=_unique_zip_name(filename, file_item, used_names))
             except HTTPException as exc:
-                filename = _safe_filename(file_item.get("file_name") or f"attachment_{index}")
+                filename = _download_filename(file_item) or _safe_filename(
+                    file_item.get("file_name") or f"attachment_{index}"
+                )
                 detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
                 errors.append(f"{filename}: {detail}")
                 continue
@@ -752,7 +799,7 @@ def api_download_e2_file(request: E2CaptchaSubmitRequest) -> StreamingResponse:
         logger.exception("E2 captcha download failed")
         raise HTTPException(status_code=502, detail=f"下载失败：{exc}") from exc
 
-    filename = _safe_filename(file_item.get("file_name") or f"e2_{request.file_id}.pdf")
+    filename = _download_filename(file_item)
     fallback = f"e2_{request.file_id}.pdf"
     return StreamingResponse(
         BytesIO(body),
