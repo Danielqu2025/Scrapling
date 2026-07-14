@@ -194,7 +194,7 @@ class SyncRequest(BaseModel):
     sources: list[str] = Field(default_factory=lambda: [SOURCE_LINK_STHJ, SOURCE_E2_QYGK])
     disclosure_types: list[str] = Field(default_factory=lambda: list(DISCLOSURE_TYPES))
     full_sync: bool = False
-    max_pages: int = Field(default=1, ge=1, description="Used when full_sync is false.")
+    max_pages: int = Field(default=2, ge=1, description="Used when full_sync is false.")
     fetch_e2_details: bool = True
     force: bool = Field(default=False, description="Skip completeness check and force full download.")
     skip_completeness_check: bool = Field(default=False, description="Run full sync without pre-check.")

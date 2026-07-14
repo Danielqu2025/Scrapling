@@ -151,32 +151,21 @@
 
     <section class="panel">
       <h2>增量同步</h2>
-      <p class="hint">各来源各抓取 1 页，适合日常补新。下列按钮均可点击。</p>
+      <p class="hint">全部来源（市级 link / e2 + 各区）各抓取 2 页，适合日常补新。</p>
       <div class="row">
-        <button id="syncQuickBtn" type="button">手动同步（每类 1 页）</button>
-        <button id="syncE2Btn" type="button">仅同步中后期（1 页）</button>
-        <button id="syncFengxianBtn" type="button">同步奉贤区（1 页）</button>
-        <button id="syncMinhangBtn" type="button">同步闵行区（1 页）</button>
-        <button id="syncSongjiangBtn" type="button">同步松江区（1 页）</button>
-        <button id="syncPudongBtn" type="button">同步浦东新区（1 页）</button>
+        <button id="syncQuickBtn" type="button">增量同步</button>
       </div>
     </section>
 
     <section class="panel">
       <h2>全量同步</h2>
-      <p class="hint">耗时较长。默认会先做完整性检查；勾选强制重下或使用专用按钮可跳过检查。</p>
+      <p class="hint">覆盖全部已接入来源。默认先做完整性检查，已完整的来源会跳过；勾选强制重下则会全部重抓（闵行等区级页数较多，耗时很长）。</p>
       <div class="row">
         <button id="syncFullBtn" type="button">全量同步</button>
-        <button id="syncLinkForceBtn" type="button">link 全量重下（强制）</button>
-        <button id="syncE2ForceBtn" type="button">e2 全量重下（强制）</button>
-        <button id="syncFengxianFullBtn" type="button">奉贤区全量</button>
-        <button id="syncMinhangFullBtn" type="button">闵行区全量</button>
-        <button id="syncSongjiangFullBtn" type="button">松江区全量</button>
-        <button id="syncPudongFullBtn" type="button">浦东新区全量</button>
       </div>
       <label class="filter-option" style="margin-top:12px">
         <input id="forceFullSync" type="checkbox">
-        <span>全量同步时强制重下（跳过完整性检查，link + e2 同时重下；仅 e2 或 link 请用上方的专用按钮）</span>
+        <span>强制重下（跳过完整性检查，全部来源重新抓取）</span>
       </label>
     </section>
 
@@ -230,27 +219,21 @@
     let syncPanelActive = false;
 
     const ALL_SYNC_TYPES = ["acceptance", "proposed_approval", "approval_decision", "post_construction"];
-    const LINK_SYNC_TYPES = ["acceptance", "proposed_approval", "approval_decision"];
-    const E2_SYNC_TYPES = ["post_construction"];
+    const ALL_SYNC_SOURCES = [
+      "link_sthj",
+      "e2_qygk",
+      "district_fengxian",
+      "district_minhang",
+      "district_songjiang",
+      "district_pudong",
+    ];
     const TYPE_LABELS = {
       acceptance: "受理信息",
       proposed_approval: "拟审批公示",
       approval_decision: "审批决定公告",
       post_construction: "中后期信息公开",
     };
-    const SYNC_BUTTON_IDS = [
-      "syncQuickBtn",
-      "syncE2Btn",
-      "syncFengxianBtn",
-      "syncMinhangBtn",
-      "syncSongjiangBtn",
-      "syncFullBtn",
-      "syncLinkForceBtn",
-      "syncE2ForceBtn",
-      "syncFengxianFullBtn",
-      "syncMinhangFullBtn",
-      "syncSongjiangFullBtn",
-    ];
+    const SYNC_BUTTON_IDS = ["syncQuickBtn", "syncFullBtn"];
 
     function formatElapsed(seconds) {
       if (!Number.isFinite(seconds) || seconds < 0) return "";
@@ -400,10 +383,10 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            sources: opts.sources || ["link_sthj", "e2_qygk"],
+            sources: opts.sources || ALL_SYNC_SOURCES,
             disclosure_types: opts.types || ALL_SYNC_TYPES,
             full_sync: fullSync,
-            max_pages: 1,
+            max_pages: 2,
             fetch_e2_details: true,
             force,
           }),
@@ -425,81 +408,14 @@
       }
     }
 
-    function startForceFullSync(sourceKey) {
-      const configs = {
-        link: {
-          label: "投用前 link.sthj（受理 / 拟审批 / 审批决定）",
-          sources: ["link_sthj"],
-          types: LINK_SYNC_TYPES,
-        },
-        e2: {
-          label: "投用后 e2.sthj（中后期信息公开）",
-          sources: ["e2_qygk"],
-          types: E2_SYNC_TYPES,
-        },
-        fengxian: {
-          label: "奉贤区环评公示（受理 / 拟审批 / 审批决定）",
-          sources: ["district_fengxian"],
-          types: LINK_SYNC_TYPES,
-        },
-        minhang: {
-          label: "闵行区环评公示（受理 / 拟审批 / 审批决定，约 1200+ 页）",
-          sources: ["district_minhang"],
-          types: LINK_SYNC_TYPES,
-        },
-        songjiang: {
-          label: "松江区环评项目公告（审批决定，接口较慢）",
-          sources: ["district_songjiang"],
-          types: ["approval_decision"],
-        },
-        pudong: {
-          label: "浦东新区环保审批公示（受理 / 拟审批 / 审批决定，约 720 条）",
-          sources: ["district_pudong"],
-          types: LINK_SYNC_TYPES,
-        },
-      };
-      const cfg = configs[sourceKey];
-      if (!cfg) return;
-      if (!confirm(`将强制全量重新下载：${cfg.label}\n\n跳过完整性检查，已有数据也会重新抓取，耗时较长。确定开始？`)) {
-        return;
-      }
-      startSync(true, { sources: cfg.sources, types: cfg.types, force: true });
-    }
-
     document.getElementById("syncQuickBtn").addEventListener("click", () => startSync(false));
-    document.getElementById("syncE2Btn").addEventListener("click", () => startSync(false, {
-      sources: ["e2_qygk"],
-      types: ["post_construction"],
-    }));
-    document.getElementById("syncFengxianBtn").addEventListener("click", () => startSync(false, {
-      sources: ["district_fengxian"],
-      types: LINK_SYNC_TYPES,
-    }));
-    document.getElementById("syncMinhangBtn").addEventListener("click", () => startSync(false, {
-      sources: ["district_minhang"],
-      types: LINK_SYNC_TYPES,
-    }));
-    document.getElementById("syncSongjiangBtn").addEventListener("click", () => startSync(false, {
-      sources: ["district_songjiang"],
-      types: ["approval_decision"],
-    }));
-    document.getElementById("syncPudongBtn").addEventListener("click", () => startSync(false, {
-      sources: ["district_pudong"],
-      types: LINK_SYNC_TYPES,
-    }));
     document.getElementById("syncFullBtn").addEventListener("click", () => {
       const force = document.getElementById("forceFullSync").checked;
       const hint = force
-        ? "将强制重新下载 link + e2 全部数据（跳过完整性检查），耗时很长，确定？"
-        : "全量同步会先检查本地是否完整；已完整则跳过下载。确定开始？";
+        ? "将强制重新下载全部来源（市级 link/e2 + 各区），跳过完整性检查；闵行等区级页数较多，耗时很长。确定？"
+        : "全量同步会先检查各来源是否完整；已完整则跳过。确定开始？";
       if (confirm(hint)) startSync(true);
     });
-    document.getElementById("syncLinkForceBtn").addEventListener("click", () => startForceFullSync("link"));
-    document.getElementById("syncE2ForceBtn").addEventListener("click", () => startForceFullSync("e2"));
-    document.getElementById("syncFengxianFullBtn").addEventListener("click", () => startForceFullSync("fengxian"));
-    document.getElementById("syncMinhangFullBtn").addEventListener("click", () => startForceFullSync("minhang"));
-    document.getElementById("syncSongjiangFullBtn").addEventListener("click", () => startForceFullSync("songjiang"));
-    document.getElementById("syncPudongFullBtn").addEventListener("click", () => startForceFullSync("pudong"));
     document.getElementById("refreshStatusBtn").addEventListener("click", () => {
       syncPanelActive = true;
       refreshSyncStatus();
