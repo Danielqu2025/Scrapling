@@ -335,18 +335,35 @@ def touch_last_login(user_id: int) -> None:
             conn.close()
 
 
-def list_audit_logs(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+def list_audit_logs(
+    limit: int = 100,
+    offset: int = 0,
+    *,
+    actions: list[str] | None = None,
+) -> list[dict[str, Any]]:
     with _db_lock:
         conn = _connect()
         try:
-            rows = conn.execute(
-                """
-                SELECT * FROM audit_logs
-                ORDER BY id DESC
-                LIMIT ? OFFSET ?
-                """,
-                (limit, offset),
-            ).fetchall()
+            if actions:
+                placeholders = ",".join("?" for _ in actions)
+                rows = conn.execute(
+                    f"""
+                    SELECT * FROM audit_logs
+                    WHERE action IN ({placeholders})
+                    ORDER BY id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (*actions, limit, offset),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM audit_logs
+                    ORDER BY id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (limit, offset),
+                ).fetchall()
             return [dict(r) for r in rows]
         finally:
             conn.close()

@@ -101,6 +101,8 @@
     .badge.pending { background: #fff7ed; color: #9a3412; }
     .badge.disabled { background: #f1f5f9; color: #64748b; }
     .badge.active { background: #ecfdf5; color: #047857; }
+    .badge.ok { background: #ecfdf5; color: #047857; }
+    .badge.fail { background: #fee2e2; color: #dc2626; }
     .actions { display: flex; flex-wrap: wrap; gap: 6px; }
     .actions button {
       border: 0;
@@ -159,6 +161,7 @@
           待审批<span class="count" id="pendingCount"></span>
         </button>
         <button type="button" class="admin-tab" data-tab="active">已激活用户</button>
+        <button type="button" class="admin-tab" data-tab="logins">登录记录</button>
         <button type="button" class="admin-tab" data-tab="audit">审计日志</button>
       </div>
 
@@ -167,6 +170,9 @@
       </div>
       <div class="admin-tab-content" id="tab-active">
         <div id="usersBox"></div>
+      </div>
+      <div class="admin-tab-content" id="tab-logins">
+        <div id="loginsBox"></div>
       </div>
       <div class="admin-tab-content" id="tab-audit">
         <div id="auditBox"></div>
@@ -284,6 +290,37 @@
       renderUsers("usersBox", users, "暂无已激活/停用用户");
     }
 
+    async function loadLoginLogs() {
+      const res = await auth.authFetch("/api/admin/login-logs?limit=100");
+      const data = await res.json();
+      if (!res.ok) throw new Error(auth.apiErrorMessage(data));
+      const logs = data.logs || [];
+      const box = document.getElementById("loginsBox");
+      if (!logs.length) {
+        box.innerHTML = `<div class="empty">暂无登录记录</div>`;
+        return;
+      }
+      box.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>时间</th><th>用户</th><th>结果</th><th>详情</th></tr>
+          </thead>
+          <tbody>
+            ${logs.map((l) => {
+              const ok = l.action === "login";
+              return `
+              <tr>
+                <td>${l.created_at || ""}</td>
+                <td>${l.actor_username || l.target || "-"}</td>
+                <td><span class="badge ${ok ? "ok" : "fail"}">${ok ? "成功" : "失败"}</span></td>
+                <td class="audit-detail">${l.detail || ""}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
     async function loadAudit() {
       const res = await auth.authFetch("/api/admin/audit?limit=80");
       const data = await res.json();
@@ -317,6 +354,7 @@
     async function loadCurrentTab() {
       if (currentTab === "pending") await loadPendingUsers();
       else if (currentTab === "active") await loadActiveUsers();
+      else if (currentTab === "logins") await loadLoginLogs();
       else await loadAudit();
     }
 

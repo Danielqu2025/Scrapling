@@ -194,3 +194,18 @@ def admin_audit(
     del admin
     logs = list_audit_logs(limit=limit, offset=offset)
     return {"count": len(logs), "logs": logs}
+
+
+@router.get("/login-logs")
+def admin_login_logs(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    logs = list_audit_logs(
+        limit=limit,
+        offset=offset,
+        actions=["login", "login_failed"],
+    )
+    return {"count": len(logs), "logs": logs}
